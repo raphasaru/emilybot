@@ -85,7 +85,7 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
     logger.info(`Running agent: ${agent.display_name}`);
     const output = await runAgent(agent.system_prompt, currentInput);
     results[agent.name] = output;
-    currentInput = output;
+    currentInput = `${output}\n\nFormato desejado: ${format}`;
   }
 
   const finalContent = results[remainingAgents[remainingAgents.length - 1]?.name] || '';
@@ -130,4 +130,5 @@ module.exports = {
   runContentFromResearch,
   buildFlowPipeline,
   extractJsonFromText,
+  loadPipeline,
 };

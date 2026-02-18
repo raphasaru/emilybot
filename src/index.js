@@ -2,6 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const { createBot } = require('./telegram/bot');
 const { logger } = require('./utils/logger');
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled rejection', { error: reason?.message || String(reason) });
+});
 const cronManager = require('./scheduler/cronManager');
 const { onCronResearchReady } = require('./telegram/handlers');
 

@@ -1,15 +1,36 @@
-const { runContentFlow, runContentFromResearch } = require('../flows/contentCreation');
+const { runContentFlow, runContentFromResearch, runResearch, loadPipeline } = require('../flows/contentCreation');
 const { supabase } = require('../database/supabase');
 const { runAgent } = require('../agents/agentRunner');
 const { logger } = require('../utils/logger');
 const cronManager = require('../scheduler/cronManager');
 const { createAgent, getNextPosition } = require('../agents/agentFactory');
+const { generatePostUnico, generateCarouselImages, parseCarouselCards } = require('../services/imageGenerator');
 
-// In-memory state for interactive cron flows
+// In-memory state for interactive flows
 let pendingCronFlow = null;
 let pendingAgentFlow = null;
+let pendingFormatFlow = null;
+let pendingImageFlow = null;
+let pendingResearchFlow = null;
 // { step: 'nome'|'funcao'|'instrucoes'|'pipeline', data: {} }
 // { schedule, researchText, remainingAgents, options: string[] }
+// { topic: string, chatId: number, researchData?: { researchText, remainingAgents } }
+// { format, final_content, draft_id, chatId }
+// { options: string[], researchText: string, remainingAgents: Agent[] }
+
+const FORMAT_BUTTONS = [
+  [
+    { text: '📱 Post único', callback_data: 'format:post_unico' },
+    { text: '🎠 Carrossel', callback_data: 'format:carrossel' },
+  ],
+  [
+    { text: '🐦 Tweet', callback_data: 'format:tweet' },
+    { text: '🧵 Thread', callback_data: 'format:thread' },
+  ],
+  [
+    { text: '🎬 Reels', callback_data: 'format:reels_roteiro' },
+  ],
+];
 
 const EMILY_SYSTEM_PROMPT = `Voce e Emily, COO e orquestradora de uma equipe de agentes de IA que trabalha para Raphael, um gestor de trafego e criador de conteudo especializado em Meta Ads, Google Ads, IA e marketing digital.
 
@@ -22,8 +43,11 @@ Suas responsabilidades:
 
 Seja direta, profissional e proativa. Quando acionar multiplos agentes, informe o progresso.
 
-IMPORTANTE — quando o usuario pedir para criar CONTEUDO, responda EXATAMENTE com:
+IMPORTANTE — quando o usuario pedir para criar CONTEUDO e ja souber o tema, responda EXATAMENTE com:
 [ACAO:CONTEUDO] tema: <tema extraido> | formato: <formato ou post_unico>
+
+IMPORTANTE — quando o usuario quiser criar conteudo MAS NAO SOUBER O TEMA, ou pedir que o pesquisador sugira um tema, responda EXATAMENTE com:
+[ACAO:PESQUISAR]
 
 IMPORTANTE — quando o usuario pedir para AGENDAR criacao de conteudo, colete as informacoes e responda EXATAMENTE com:
 [ACAO:AGENDAR] nome: <nome do agendamento> | cron: "<expressao cron>" | topics: "<tema1,tema2>" | format: <formato>
@@ -40,6 +64,16 @@ IMPORTANTE — quando o usuario pedir para CRIAR um novo agente ou subagente, re
 [ACAO:CRIAR_AGENTE]
 
 Exemplos de pedidos que ativam isso: "cria um agente", "quero um novo agente", "adiciona um agente revisor", "criar subagente".
+
+IMPORTANTE — quando o usuario quiser gerar uma imagem de post com uma FRASE EXATA que ele mesmo escreveu (sem reescrever, sem pipeline de criacao), responda EXATAMENTE com:
+[ACAO:POST_DIRETO] texto: <frase exata copiada literalmente da mensagem do usuario>
+
+Exemplos que ativam isso: "quero um post com exatamente essa frase: ...", "gera imagem com esse texto exato: ...", "cria um post com o texto que escrevi: ...", "quero um conteudo novo de um unico post com exatamente essa frase: ...".
+
+IMPORTANTE — quando o usuario mandar um BLOCO DE TEXTO/CONTEXTO e quiser criar conteudo baseado nele (sem pesquisa nova), responda EXATAMENTE com:
+[ACAO:CONTEXTO] topic: <titulo curto extraido do contexto> | texto: <texto de contexto copiado literalmente da mensagem>
+
+Exemplos que ativam isso: "usa esse contexto para criar um carrossel: ...", "cria conteudo com esse texto: ...", "aqui esta a explicacao, faz um post sobre isso: ...", "pega essa resposta do Claude e faz um carrossel: ...", "com base nisso aqui cria um carrossel: ...".
 
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
 
@@ -210,32 +244,297 @@ async function handleAgentes(bot, msg) {
   });
 }
 
-async function handleConteudo(bot, msg, topic, format = 'post_unico') {
+async function askForFormat(bot, chatId, topic, directText = null, contextText = null) {
+  pendingFormatFlow = { topic, chatId, directText, contextText };
+  const keyboard = contextText
+    ? [...FORMAT_BUTTONS, [{ text: '📋 Usar texto como está', callback_data: 'format:contexto_direto' }]]
+    : FORMAT_BUTTONS;
+  await bot.sendMessage(
+    chatId,
+    `🎨 Qual formato para *"${topic || 'seu texto'}"*?`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    }
+  );
+}
+
+function extractCleanPreview(finalContent, format) {
+  if (format === 'carrossel') return null; // skip preview, image says it all
+  if (format === 'post_unico') {
+    try {
+      const jsonStr = finalContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+      const parsed = JSON.parse(jsonStr);
+      const raw = typeof parsed.content === 'string' ? parsed.content : finalContent;
+      return raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
+    } catch {}
+  }
+  return finalContent;
+}
+
+async function runContentAndSend(bot, chatId, topic, format) {
+  await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
+  try {
+    const result = await runContentFlow(topic, format);
+    const preview = extractCleanPreview(result.final_content || '', format);
+    if (preview) {
+      const chunks = preview.match(/.{1,4000}/gs) || [preview];
+      for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
+    }
+    await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
+    if (['post_unico', 'carrossel'].includes(format)) {
+      pendingImageFlow = { format, final_content: result.final_content, draft_id: result.draft_id, chatId };
+      await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
+        },
+      });
+    }
+  } catch (err) {
+    logger.error('Content flow failed', { error: err.message });
+    await bot.sendMessage(chatId, `❌ Erro no fluxo: ${err.message}`);
+  }
+}
+
+async function runResearchContentAndSend(bot, chatId, topic, format, researchText, remainingAgents) {
+  await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
+  try {
+    const result = await runContentFromResearch(researchText, topic, format, remainingAgents);
+    const preview = extractCleanPreview(result.final_content || '', format);
+    if (preview) {
+      const chunks = preview.match(/.{1,4000}/gs) || [preview];
+      for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
+    }
+    await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
+    if (['post_unico', 'carrossel'].includes(format)) {
+      pendingImageFlow = { format, final_content: result.final_content, draft_id: result.draft_id, chatId };
+      await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
+        },
+      });
+    }
+  } catch (err) {
+    logger.error('Research content flow failed', { error: err.message });
+    await bot.sendMessage(chatId, `❌ Erro no fluxo: ${err.message}`);
+  }
+}
+
+async function handleImageCallback(bot, query) {
+  if (query.data !== 'image:generate') return;
+  const chatId = query.message.chat.id;
+  await bot.answerCallbackQuery(query.id);
+
+  await bot.editMessageReplyMarkup(
+    { inline_keyboard: [] },
+    { chat_id: chatId, message_id: query.message.message_id }
+  );
+
+  if (!pendingImageFlow || pendingImageFlow.chatId !== chatId) {
+    return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente para gerar imagem.');
+  }
+
+  const { format, final_content } = pendingImageFlow;
+  pendingImageFlow = null;
+
+  if (format === 'post_unico') {
+    await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
+    try {
+      // Extract text content from formatador JSON (may be wrapped in ```json block)
+      let postText = final_content;
+      try {
+        const jsonStr = final_content.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+        const parsed = JSON.parse(jsonStr);
+        let raw = typeof parsed.content === 'string' ? parsed.content : final_content;
+        // Strip markdown bold/italic
+        raw = raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
+        postText = raw;
+      } catch {}
+      const imgBuf = await generatePostUnico(postText);
+      await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
+    } catch (err) {
+      logger.error('Post unico image failed', { error: err.message });
+      await bot.sendMessage(chatId, `❌ Erro ao gerar imagem: ${err.message}`);
+    }
+    return;
+  }
+
+  if (format === 'carrossel') {
+    await bot.sendMessage(chatId, '🎠 Gerando cards do carrossel...');
+    try {
+      const cards = parseCarouselCards(final_content);
+      await bot.sendMessage(chatId, `📋 ${cards.length} cards encontrados. Gerando imagens...`);
+      const images = await generateCarouselImages(cards);
+      for (const { buf, caption } of images) {
+        await bot.sendPhoto(chatId, buf, { caption }, { filename: 'card.png', contentType: 'image/png' });
+      }
+      await bot.sendMessage(chatId, '✅ Carrossel gerado!');
+    } catch (err) {
+      logger.error('Carousel image failed', { error: err.message });
+      await bot.sendMessage(chatId, `❌ Erro ao gerar carrossel: ${err.message}`);
+    }
+  }
+}
+
+async function handlePesquisarAction(bot, chatId) {
+  await bot.sendMessage(chatId, '🔍 Pesquisando tendencias para sugerir temas...');
+  try {
+    const { researchText, remainingAgents } = await runResearch('marketing digital, IA, Meta Ads, Google Ads');
+    const options = parseResearchOptions(researchText);
+
+    if (!options.length) {
+      await bot.sendMessage(chatId, `📊 Pesquisa concluida:\n\n${researchText.slice(0, 1500)}\n\nQual tema voce quer? Use /conteudo <tema>.`);
+      return;
+    }
+
+    pendingResearchFlow = { options, researchText, remainingAgents };
+
+    const buttons = options.map((opt, i) => [{
+      text: opt.length > 50 ? opt.slice(0, 47) + '...' : opt,
+      callback_data: `research:${i}`,
+    }]);
+
+    await bot.sendMessage(chatId, '📊 *Temas em alta para voce:*', {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: buttons },
+    });
+  } catch (err) {
+    logger.error('Pesquisar action failed', { error: err.message });
+    await bot.sendMessage(chatId, `❌ Erro ao pesquisar: ${err.message}`);
+  }
+}
+
+async function handleResearchCallback(bot, query) {
+  const chatId = query.message.chat.id;
+  const idx = parseInt(query.data.replace('research:', ''), 10);
+
+  await bot.answerCallbackQuery(query.id);
+
+  if (!pendingResearchFlow || pendingResearchFlow.chatId === undefined && pendingResearchFlow.options === undefined) {
+    return bot.sendMessage(chatId, '❌ Nenhuma pesquisa pendente.');
+  }
+
+  const { options, researchText, remainingAgents } = pendingResearchFlow;
+  const topic = options[idx];
+  pendingResearchFlow = null;
+
+  if (!topic) {
+    return bot.sendMessage(chatId, '❌ Opcao invalida.');
+  }
+
+  await bot.editMessageText(
+    `✅ Tema selecionado: *${topic}*`,
+    { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'Markdown' }
+  );
+
+  pendingFormatFlow = { topic, chatId, researchData: { researchText, remainingAgents } };
+  await bot.sendMessage(chatId, `🎨 Qual formato para *"${topic}"*?`, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: FORMAT_BUTTONS },
+  });
+}
+
+async function handleConteudo(bot, msg, topic) {
   if (!topic) {
     return bot.sendMessage(
       msg.chat.id,
       'Use: /conteudo <tema>\nEx: /conteudo novidades Meta Ads 2025'
     );
   }
+  await askForFormat(bot, msg.chat.id, topic);
+}
 
-  await bot.sendMessage(msg.chat.id, '🔄 Iniciando fluxo de criacao de conteudo...');
+async function handleFormatCallback(bot, query) {
+  const chatId = query.message.chat.id;
+  const data = query.data;
 
-  try {
-    const result = await runContentFlow(topic, format);
-    const content = result.final_content || 'Conteudo nao gerado';
+  if (!data.startsWith('format:')) return;
+  const format = data.replace('format:', '');
 
-    const chunks = content.match(/.{1,4000}/gs) || [content];
-    for (const chunk of chunks) {
-      await bot.sendMessage(msg.chat.id, chunk);
+  await bot.answerCallbackQuery(query.id);
+
+  if (!pendingFormatFlow || pendingFormatFlow.chatId !== chatId) {
+    return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente. Use /conteudo <tema>.');
+  }
+
+  const { topic, researchData, directText, contextText } = pendingFormatFlow;
+  pendingFormatFlow = null;
+
+  const formatLabels = {
+    post_unico: 'Post único',
+    carrossel: 'Carrossel',
+    tweet: 'Tweet',
+    thread: 'Thread',
+    reels_roteiro: 'Reels',
+  };
+
+  await bot.editMessageText(
+    `🎨 Formato escolhido: *${formatLabels[format] || format}*`,
+    { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'Markdown' }
+  );
+
+  // Direct text mode: skip pipeline, generate image from exact text
+  if (directText) {
+    if (format === 'post_unico') {
+      await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
+      try {
+        const imgBuf = await generatePostUnico(directText);
+        await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único' }, { filename: 'post.png', contentType: 'image/png' });
+      } catch (err) {
+        logger.error('Direct post image failed', { error: err.message });
+        await bot.sendMessage(chatId, `❌ Erro ao gerar imagem: ${err.message}`);
+      }
+    } else {
+      await bot.sendMessage(chatId, `📝 Texto para ${formatLabels[format] || format}:\n\n${directText}`);
+    }
+    return;
+  }
+
+  // Context mode: skip pesquisador, run redator+formatador with user-provided text
+  if (contextText) {
+    // "Usar como está" — skip pipeline entirely, use context as final_content
+    if (format === 'contexto_direto') {
+      try {
+        const { data: draft } = await supabase
+          .from('content_drafts')
+          .insert({ topic: topic || 'contexto direto', format: 'post_unico', draft: null, final_content: contextText, status: 'completed' })
+          .select().single();
+        const chunks = contextText.match(/.{1,4000}/gs) || [contextText];
+        for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
+        await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${draft?.id || 'N/A'})`);
+        pendingImageFlow = { format: 'post_unico', final_content: contextText, draft_id: draft?.id, chatId };
+        await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
+          reply_markup: { inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]] },
+        });
+      } catch (err) {
+        logger.error('Context direct flow failed', { error: err.message });
+        await bot.sendMessage(chatId, `❌ Erro: ${err.message}`);
+      }
+      return;
     }
 
-    await bot.sendMessage(
-      msg.chat.id,
-      `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`
-    );
-  } catch (err) {
-    logger.error('Content flow failed', { error: err.message });
-    await bot.sendMessage(msg.chat.id, `❌ Erro no fluxo: ${err.message}`);
+    // Normal context mode: run redator+formatador with fidelity instruction
+    const contextWithInstructions =
+      `INSTRUCAO: mantenha maxima fidelidade ao conteudo, ideias e estrutura do texto abaixo. ` +
+      `Adapte APENAS o que for estritamente necessario para o formato "${format}".\n\n` +
+      `TEXTO DO USUARIO:\n${contextText}`;
+    try {
+      const pipeline = await loadPipeline();
+      const remainingAgents = pipeline.slice(1); // skip pesquisador (position 1)
+      await runResearchContentAndSend(bot, chatId, topic, format, contextWithInstructions, remainingAgents);
+    } catch (err) {
+      logger.error('Context content flow failed', { error: err.message });
+      await bot.sendMessage(chatId, `❌ Erro ao processar contexto: ${err.message}`);
+    }
+    return;
+  }
+
+  if (researchData) {
+    await runResearchContentAndSend(bot, chatId, topic, format, researchData.researchText, researchData.remainingAgents);
+  } else {
+    await runContentAndSend(bot, chatId, topic, format);
   }
 }
 
@@ -313,16 +612,16 @@ async function handleDisparar(bot, msg, scheduleId) {
 async function handleAjuda(bot, msg) {
   await bot.sendMessage(
     msg.chat.id,
-    '*Comandos disponiveis:*\n\n' +
+    'Comandos disponiveis:\n\n' +
     '/start — Apresentacao\n' +
     '/agentes — Lista agentes ativos\n' +
-    '/criar_agente — Criar novo agente\n' +
-    '/conteudo <tema> — Criar conteudo\n' +
+    '/criar\\_agente — Criar novo agente\n' +
+    '/conteudo \\<tema\\> — Criar conteudo\n' +
     '/agendamentos — Lista cron jobs\n' +
-    '/pausar <id> — Pausa um agendamento\n' +
+    '/pausar \\<id\\> — Pausa um agendamento\n' +
     '/status — Status do sistema\n' +
     '/ajuda — Este menu',
-    { parse_mode: 'Markdown' }
+    { parse_mode: 'MarkdownV2' }
   );
 }
 
@@ -422,18 +721,23 @@ async function handleFreeMessage(bot, msg) {
       { model: 'haiku', maxTokens: 2048 }
     );
 
+    // Detect research intent (no topic specified)
+    if (response.includes('[ACAO:PESQUISAR]')) {
+      return await handlePesquisarAction(bot, msg.chat.id);
+    }
+
     // Detect content creation intent
     const contentMatch = response.match(
-      /\[ACAO:CONTEUDO\]\s*tema:\s*(.+?)\s*\|\s*formato:\s*(.+)/
+      /\[ACAO:CONTEUDO\]\s*tema:\s*(.+?)(?:\s*\|.*)?$/m
     );
     if (contentMatch) {
-      const [, tema, formato] = contentMatch;
+      const tema = contentMatch[1].trim();
       await bot.sendMessage(
         msg.chat.id,
-        `📋 Entendido! Criando conteudo sobre: *${tema.trim()}*`,
+        `📋 Entendido! Vamos criar conteudo sobre: *${tema}*`,
         { parse_mode: 'Markdown' }
       );
-      return await handleConteudo(bot, msg, tema.trim(), formato.trim());
+      return await askForFormat(bot, msg.chat.id, tema);
     }
 
     // Detect scheduling intent
@@ -474,6 +778,23 @@ async function handleFreeMessage(bot, msg) {
       return await startAgentOnboarding(bot, msg.chat.id);
     }
 
+    // Detect direct text post intent
+    const directMatch = response.match(/\[ACAO:POST_DIRETO\]\s*texto:\s*([\s\S]+)$/m);
+    if (directMatch) {
+      const directText = directMatch[1].trim();
+      await bot.sendMessage(msg.chat.id, '✏️ Entendido! Qual formato para o seu texto?');
+      return await askForFormat(bot, msg.chat.id, null, directText);
+    }
+
+    // Detect context-based content intent (skip pesquisador, use provided text)
+    const contextMatch = response.match(/\[ACAO:CONTEXTO\]\s*topic:\s*(.+?)\s*\|\s*texto:\s*([\s\S]+)$/m);
+    if (contextMatch) {
+      const topic = contextMatch[1].trim();
+      const contextText = contextMatch[2].trim();
+      await bot.sendMessage(msg.chat.id, `📋 Contexto recebido! Qual formato deseja?`);
+      return await askForFormat(bot, msg.chat.id, topic, null, contextText);
+    }
+
     await bot.sendMessage(msg.chat.id, response);
 
     supabase.from('conversations').insert([
@@ -496,6 +817,9 @@ module.exports = {
   handleStart,
   handleAgentes,
   handleConteudo,
+  handleFormatCallback,
+  handleImageCallback,
+  handleResearchCallback,
   handleAgendamentos,
   handlePausar,
   handleAjuda,
@@ -506,4 +830,7 @@ module.exports = {
   handleCriarAgente,
   _setPendingCronFlow: (v) => { pendingCronFlow = v; },
   _setPendingAgentFlow: (v) => { pendingAgentFlow = v; },
+  _setPendingFormatFlow: (v) => { pendingFormatFlow = v; },
+  _setPendingImageFlow: (v) => { pendingImageFlow = v; },
+  _setPendingResearchFlow: (v) => { pendingResearchFlow = v; },
 };

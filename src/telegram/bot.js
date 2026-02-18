@@ -4,6 +4,9 @@ const {
   handleStart,
   handleAgentes,
   handleConteudo,
+  handleFormatCallback,
+  handleImageCallback,
+  handleResearchCallback,
   handleAgendamentos,
   handlePausar,
   handleDisparar,
@@ -73,6 +76,18 @@ function createBot() {
   bot.onText(/\/status/, (msg) => {
     if (!guard(msg.chat.id)) return;
     handleStatus(bot, msg);
+  });
+
+  // Inline button callbacks
+  bot.on('callback_query', (query) => {
+    if (!guard(query.message.chat.id)) return;
+    if (query.data?.startsWith('format:')) {
+      handleFormatCallback(bot, query);
+    } else if (query.data?.startsWith('research:')) {
+      handleResearchCallback(bot, query);
+    } else if (query.data === 'image:generate') {
+      handleImageCallback(bot, query);
+    }
   });
 
   // Free messages — skip commands
