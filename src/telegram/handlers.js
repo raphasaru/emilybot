@@ -316,6 +316,7 @@ async function handleAjuda(bot, msg) {
     '*Comandos disponiveis:*\n\n' +
     '/start — Apresentacao\n' +
     '/agentes — Lista agentes ativos\n' +
+    '/criar_agente — Criar novo agente\n' +
     '/conteudo <tema> — Criar conteudo\n' +
     '/agendamentos — Lista cron jobs\n' +
     '/pausar <id> — Pausa um agendamento\n' +

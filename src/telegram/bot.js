@@ -10,6 +10,7 @@ const {
   handleAjuda,
   handleStatus,
   handleFreeMessage,
+  handleCriarAgente,
 } = require('./handlers');
 const { logger } = require('../utils/logger');
 require('dotenv').config();
@@ -37,6 +38,11 @@ function createBot() {
   bot.onText(/\/agentes/, (msg) => {
     if (!guard(msg.chat.id)) return;
     handleAgentes(bot, msg);
+  });
+
+  bot.onText(/\/criar_agente/, (msg) => {
+    if (!guard(msg.chat.id)) return;
+    handleCriarAgente(bot, msg);
   });
 
   bot.onText(/\/conteudo(?:\s+(.+))?/, (msg, match) => {
