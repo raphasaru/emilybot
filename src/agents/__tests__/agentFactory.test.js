@@ -54,6 +54,14 @@ describe('agentFactory', () => {
       expect(update).toHaveBeenCalledWith({ is_active: false, position_in_flow: null });
       expect(eq).toHaveBeenCalledWith('id', 'uuid-1');
     });
+
+    it('throws on supabase error', async () => {
+      const eq = jest.fn().mockResolvedValue({ error: { message: 'update error' } });
+      const update = jest.fn().mockReturnValue({ eq });
+      supabase.from.mockReturnValue({ update });
+
+      await expect(deactivateAgent('uuid-1')).rejects.toThrow('update error');
+    });
   });
 
   describe('getNextPosition', () => {
