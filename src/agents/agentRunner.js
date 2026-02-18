@@ -2,7 +2,12 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { logger } = require('../utils/logger');
 require('dotenv').config();
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const key = process.env.ANTHROPIC_API_KEY || '';
+const anthropic = new Anthropic(
+  key.startsWith('sk-ant-oat')
+    ? { authToken: key }
+    : { apiKey: key }
+);
 
 function buildMessages(systemPrompt, input) {
   if (Array.isArray(input)) return input;
