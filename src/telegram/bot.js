@@ -6,6 +6,7 @@ const {
   handleConteudo,
   handleAgendamentos,
   handlePausar,
+  handleDisparar,
   handleAjuda,
   handleStatus,
   handleFreeMessage,
@@ -51,6 +52,11 @@ function createBot() {
   bot.onText(/\/pausar(?:\s+(.+))?/, (msg, match) => {
     if (!guard(msg.chat.id)) return;
     handlePausar(bot, msg, match?.[1]?.trim());
+  });
+
+  bot.onText(/\/disparar(?:\s+(.+))?/, (msg, match) => {
+    if (!guard(msg.chat.id)) return;
+    handleDisparar(bot, msg, match?.[1]?.trim());
   });
 
   bot.onText(/\/ajuda/, (msg) => {

@@ -150,6 +150,34 @@ async function handlePausar(bot, msg, scheduleId) {
   }
 }
 
+async function handleDisparar(bot, msg, scheduleId) {
+  if (!scheduleId) {
+    return bot.sendMessage(msg.chat.id, 'Use: /disparar <id>\nVeja os IDs com /agendamentos');
+  }
+
+  const { data: schedule, error } = await supabase
+    .from('schedules')
+    .select('*')
+    .eq('id', scheduleId)
+    .single();
+
+  if (error || !schedule) {
+    return bot.sendMessage(msg.chat.id, `❌ Agendamento nao encontrado: ${scheduleId}`);
+  }
+
+  await bot.sendMessage(msg.chat.id, `🔄 Disparando "${schedule.name}"...`);
+
+  try {
+    const { runResearch } = require('../flows/contentCreation');
+    const topics = (schedule.topics || []).join(', ') || 'IA e marketing digital';
+    const { researchText, remainingAgents } = await runResearch(topics);
+    await onCronResearchReady(bot, String(msg.chat.id), schedule, researchText, remainingAgents);
+  } catch (err) {
+    logger.error('Manual trigger failed', { error: err.message });
+    await bot.sendMessage(msg.chat.id, `❌ Erro ao disparar: ${err.message}`);
+  }
+}
+
 async function handleAjuda(bot, msg) {
   await bot.sendMessage(
     msg.chat.id,
@@ -325,6 +353,7 @@ module.exports = {
   handlePausar,
   handleAjuda,
   handleStatus,
+  handleDisparar,
   handleFreeMessage,
   onCronResearchReady,
   _setPendingCronFlow: (v) => { pendingCronFlow = v; },
