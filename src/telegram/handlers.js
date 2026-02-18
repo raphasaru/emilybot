@@ -36,16 +36,35 @@ Se o usuario nao especificar topics, use "IA,Meta Ads,marketing digital". Se nao
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
 
 function parseResearchOptions(researchText) {
+  // Try JSON first — pesquisador often returns array or {ideas:[]} with "title" fields
+  try {
+    const raw = researchText.trim();
+    const jsonStr = raw.startsWith('[') || raw.startsWith('{') ? raw : (raw.match(/(\[[\s\S]*\]|\{[\s\S]*\})/)?.[0] || '');
+    if (jsonStr) {
+      const parsed = JSON.parse(jsonStr);
+      const items = Array.isArray(parsed) ? parsed : (parsed.ideas || parsed.suggestions || parsed.pautas || []);
+      const titles = items
+        .map((item) => item.title || item.titulo || item.gancho || item.headline || Object.values(item)[0])
+        .filter((t) => typeof t === 'string' && t.length > 10)
+        .slice(0, 5);
+      if (titles.length) return titles;
+    }
+  } catch {}
+
+  // Fallback: look for "title" values in the raw text
+  const titleMatches = [...researchText.matchAll(/"title"\s*:\s*"([^"]{10,})"/g)];
+  if (titleMatches.length) {
+    return titleMatches.map((m) => m[1]).slice(0, 5);
+  }
+
+  // Last resort: numbered lines that look like idea titles (long enough, not JSON fields)
   const lines = researchText.split('\n');
   const options = [];
   for (const line of lines) {
-    const match = line.match(/^\s*\d+[\.\)]\s*(.+)/);
-    if (match && match[1].trim().length > 10) {
+    const match = line.match(/^\s*\d+[\.\)]\s*(.{20,})/);
+    if (match && !match[1].includes('":')) {
       options.push(match[1].trim());
     }
-  }
-  if (!options.length) {
-    return lines.filter((l) => l.trim().length > 20).slice(0, 3);
   }
   return options.slice(0, 5);
 }
