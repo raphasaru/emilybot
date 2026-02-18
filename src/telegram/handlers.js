@@ -33,6 +33,11 @@ Expressoes cron comuns:
 
 Se o usuario nao especificar topics, use "IA,Meta Ads,marketing digital". Se nao especificar formato, use "post_unico".
 
+IMPORTANTE — quando o usuario pedir para CRIAR um novo agente ou subagente, responda EXATAMENTE com:
+[ACAO:CRIAR_AGENTE]
+
+Exemplos de pedidos que ativam isso: "cria um agente", "quero um novo agente", "adiciona um agente revisor", "criar subagente".
+
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
 
 function parseResearchOptions(researchText) {
