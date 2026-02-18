@@ -118,17 +118,15 @@ async function handleAgendamentos(bot, msg) {
     const list = schedules
       .map(
         (s) =>
-          `${s.is_active ? '✅' : '⏸️'} *${s.name}*\n` +
-          `   Cron: \`${s.cron_expression}\`\n` +
+          `${s.is_active ? '✅' : '⏸️'} ${s.name}\n` +
+          `   Cron: ${s.cron_expression}\n` +
           `   Temas: ${(s.topics || []).join(', ') || 'automatico'}\n` +
           `   Formato: ${s.format}\n` +
-          `   ID: \`${s.id}\``
+          `   ID: ${s.id}`
       )
       .join('\n\n');
 
-    await bot.sendMessage(msg.chat.id, `*Agendamentos:*\n\n${list}`, {
-      parse_mode: 'Markdown',
-    });
+    await bot.sendMessage(msg.chat.id, `Agendamentos:\n\n${list}`);
   } catch (err) {
     logger.error('List schedules failed', { error: err.message });
     await bot.sendMessage(msg.chat.id, `❌ Erro: ${err.message}`);
@@ -145,9 +143,7 @@ async function handlePausar(bot, msg, scheduleId) {
 
   try {
     await cronManager.pause(scheduleId);
-    await bot.sendMessage(msg.chat.id, `⏸️ Agendamento \`${scheduleId}\` pausado.`, {
-      parse_mode: 'Markdown',
-    });
+    await bot.sendMessage(msg.chat.id, `⏸️ Agendamento pausado: ${scheduleId}`);
   } catch (err) {
     logger.error('Pause schedule failed', { error: err.message });
     await bot.sendMessage(msg.chat.id, `❌ Erro: ${err.message}`);
@@ -282,9 +278,7 @@ async function handleFreeMessage(bot, msg) {
       const [, nome, cronExpr, topicsStr, format] = scheduleMatch;
       const topics = topicsStr.split(',').map((t) => t.trim()).filter(Boolean);
 
-      await bot.sendMessage(msg.chat.id, `⏰ Criando agendamento *${nome.trim()}*...`, {
-        parse_mode: 'Markdown',
-      });
+      await bot.sendMessage(msg.chat.id, `⏰ Criando agendamento "${nome.trim()}"...`);
 
       try {
         const schedule = await cronManager.createSchedule(bot, String(msg.chat.id), {
@@ -296,12 +290,11 @@ async function handleFreeMessage(bot, msg) {
 
         await bot.sendMessage(
           msg.chat.id,
-          `✅ Agendamento *${schedule.name}* criado!\n` +
-          `⏰ Expressao: \`${schedule.cron_expression}\`\n` +
+          `✅ Agendamento "${schedule.name}" criado!\n` +
+          `⏰ Expressao: ${schedule.cron_expression}\n` +
           `📌 Temas: ${topics.join(', ')}\n` +
           `📄 Formato: ${schedule.format}\n\n` +
-          `Use /agendamentos para ver todos.`,
-          { parse_mode: 'Markdown' }
+          `Use /agendamentos para ver todos.`
         );
       } catch (err) {
         logger.error('Create schedule failed', { error: err.message });
