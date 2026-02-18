@@ -368,6 +368,11 @@ async function onCronResearchReady(bot, chatId, schedule, researchText, remainin
 }
 
 async function handleFreeMessage(bot, msg) {
+  // Intercept if in agent onboarding flow
+  if (pendingAgentFlow) {
+    return await handleAgentOnboardingStep(bot, msg);
+  }
+
   // Intercept if waiting for pauta choice from a cron flow
   if (pendingCronFlow) {
     const text = msg.text.trim();
@@ -463,6 +468,11 @@ async function handleFreeMessage(bot, msg) {
       return;
     }
 
+    // Detect agent creation intent
+    if (response.includes('[ACAO:CRIAR_AGENTE]')) {
+      return await startAgentOnboarding(bot, msg.chat.id);
+    }
+
     await bot.sendMessage(msg.chat.id, response);
 
     supabase.from('conversations').insert([
@@ -477,6 +487,10 @@ async function handleFreeMessage(bot, msg) {
   }
 }
 
+async function handleCriarAgente(bot, msg) {
+  await startAgentOnboarding(bot, msg.chat.id);
+}
+
 module.exports = {
   handleStart,
   handleAgentes,
@@ -488,5 +502,7 @@ module.exports = {
   handleDisparar,
   handleFreeMessage,
   onCronResearchReady,
+  handleCriarAgente,
   _setPendingCronFlow: (v) => { pendingCronFlow = v; },
+  _setPendingAgentFlow: (v) => { pendingAgentFlow = v; },
 };
