@@ -88,5 +88,16 @@ describe('agentFactory', () => {
       const pos = await getNextPosition();
       expect(pos).toBe(1);
     });
+
+    it('throws on supabase error', async () => {
+      const single = jest.fn().mockResolvedValue({ data: null, error: { message: 'query error' } });
+      const limit = jest.fn().mockReturnValue({ single });
+      const order = jest.fn().mockReturnValue({ limit });
+      const not = jest.fn().mockReturnValue({ order });
+      const select = jest.fn().mockReturnValue({ not });
+      supabase.from.mockReturnValue({ select });
+
+      await expect(getNextPosition()).rejects.toThrow('query error');
+    });
   });
 });

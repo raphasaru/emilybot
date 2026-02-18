@@ -23,7 +23,7 @@ async function deactivateAgent(id) {
 }
 
 async function getNextPosition() {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('agents')
     .select('position_in_flow')
     .not('position_in_flow', 'is', null)
@@ -31,6 +31,7 @@ async function getNextPosition() {
     .limit(1)
     .single();
 
+  if (error) throw new Error(error.message);
   return data ? data.position_in_flow + 1 : 1;
 }
 
