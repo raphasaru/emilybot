@@ -3,9 +3,12 @@ const { supabase } = require('../database/supabase');
 const { runAgent } = require('../agents/agentRunner');
 const { logger } = require('../utils/logger');
 const cronManager = require('../scheduler/cronManager');
+const { createAgent, getNextPosition } = require('../agents/agentFactory');
 
 // In-memory state for interactive cron flows
 let pendingCronFlow = null;
+let pendingAgentFlow = null;
+// { step: 'nome'|'funcao'|'instrucoes'|'pipeline', data: {} }
 // { schedule, researchText, remainingAgents, options: string[] }
 
 const EMILY_SYSTEM_PROMPT = `Voce e Emily, COO e orquestradora de uma equipe de agentes de IA que trabalha para Raphael, um gestor de trafego e criador de conteudo especializado em Meta Ads, Google Ads, IA e marketing digital.
@@ -39,6 +42,111 @@ IMPORTANTE — quando o usuario pedir para CRIAR um novo agente ou subagente, re
 Exemplos de pedidos que ativam isso: "cria um agente", "quero um novo agente", "adiciona um agente revisor", "criar subagente".
 
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
+
+async function generateAgentSystemPrompt(displayName, role, instructions) {
+  const prompt = `Voce e um especialista em criacao de instrucoes para agentes de IA.
+
+Crie um system prompt profissional e completo para um agente com as seguintes caracteristicas:
+- Nome: ${displayName}
+- Funcao: ${role}
+- Instrucoes especificas: ${instructions || 'Nenhuma instrucao adicional'}
+
+O system prompt deve:
+1. Definir claramente o papel e missao do agente
+2. Especificar o tom e estilo de resposta
+3. Listar as responsabilidades principais
+4. Ser escrito em portugues
+
+Retorne APENAS o system prompt, sem explicacoes adicionais.`;
+
+  return runAgent(prompt, 'Gere o system prompt agora.', { model: 'sonnet', maxTokens: 1024 });
+}
+
+async function startAgentOnboarding(bot, chatId) {
+  pendingAgentFlow = { step: 'nome', data: {} };
+  await bot.sendMessage(chatId, 'Otimo! Vou criar um novo agente. Como ele se chama?');
+}
+
+async function handleAgentOnboardingStep(bot, msg) {
+  const text = msg.text.trim();
+  const chatId = msg.chat.id;
+  const { step, data } = pendingAgentFlow;
+
+  if (step === 'nome') {
+    data.display_name = text;
+    data.name = text.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    pendingAgentFlow.step = 'funcao';
+    await bot.sendMessage(chatId, `Perfeito! Qual e a funcao principal do ${data.display_name}?\n\nDescreva o que ele deve fazer.`);
+    return;
+  }
+
+  if (step === 'funcao') {
+    data.role = text;
+    pendingAgentFlow.step = 'instrucoes';
+    await bot.sendMessage(chatId, 'Tem alguma instrucao especifica ou estilo que ele deve seguir?\n\n(Responda "nenhuma" para pular)');
+    return;
+  }
+
+  if (step === 'instrucoes') {
+    data.instructions = text.toLowerCase() === 'nenhuma' ? '' : text;
+    pendingAgentFlow.step = 'pipeline';
+
+    const { data: agents } = await supabase
+      .from('agents')
+      .select('display_name, position_in_flow')
+      .eq('is_active', true)
+      .not('position_in_flow', 'is', null)
+      .order('position_in_flow');
+
+    const pipelineList = agents?.length
+      ? agents.map((a) => `  ${a.position_in_flow}. ${a.display_name}`).join('\n')
+      : '  (pipeline vazio)';
+
+    await bot.sendMessage(
+      chatId,
+      `Quer que o ${data.display_name} entre no pipeline de criacao de conteudo?\n\n` +
+      `Pipeline atual:\n${pipelineList}\n\n` +
+      `Responda "sim" para adicionar ao final, um numero para inserir na posicao, ou "nao" para nao adicionar.`
+    );
+    return;
+  }
+
+  if (step === 'pipeline') {
+    let position_in_flow = null;
+
+    if (text.toLowerCase() !== 'nao') {
+      if (!isNaN(parseInt(text, 10))) {
+        position_in_flow = parseInt(text, 10);
+      } else {
+        position_in_flow = await getNextPosition();
+      }
+    }
+
+    pendingAgentFlow = null;
+
+    await bot.sendMessage(chatId, `Gerando system prompt para o ${data.display_name}...`);
+
+    try {
+      const system_prompt = await generateAgentSystemPrompt(data.display_name, data.role, data.instructions);
+      const agent = await createAgent({ ...data, system_prompt, position_in_flow });
+
+      const pipelineMsg = position_in_flow
+        ? `\nPosicao no pipeline: ${position_in_flow}`
+        : '\nNao adicionado ao pipeline de conteudo.';
+
+      await bot.sendMessage(
+        chatId,
+        `Agente ${agent.display_name} criado com sucesso!\n` +
+        `Funcao: ${agent.role}${pipelineMsg}\n\n` +
+        `Use /agentes para ver todos os agentes.`
+      );
+    } catch (err) {
+      logger.error('Agent creation failed', { error: err.message });
+      await bot.sendMessage(chatId, `Erro ao criar agente: ${err.message}`);
+    }
+    return;
+  }
+}
 
 function parseResearchOptions(researchText) {
   // Try JSON first — pesquisador often returns array or {ideas:[]} with "title" fields
