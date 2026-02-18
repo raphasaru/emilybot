@@ -84,6 +84,10 @@ async function createSchedule(bot, chatId, scheduleData) {
 
   if (error) throw new Error(`Failed to create schedule: ${error.message}`);
 
+  if (!cron.validate(data.cron_expression)) {
+    throw new Error(`Invalid cron expression: ${data.cron_expression}`);
+  }
+
   _registerCron(bot, chatId, data);
   return data;
 }

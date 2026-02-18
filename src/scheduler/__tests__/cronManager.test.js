@@ -1,5 +1,6 @@
 jest.mock('node-cron', () => ({
   schedule: jest.fn().mockReturnValue({ stop: jest.fn() }),
+  validate: jest.fn().mockReturnValue(true),
 }));
 jest.mock('../../database/supabase', () => ({
   supabase: {
@@ -25,6 +26,7 @@ describe('cronManager', () => {
   test('init loads active schedules and registers crons', async () => {
     jest.mock('node-cron', () => ({
       schedule: jest.fn().mockReturnValue({ stop: jest.fn() }),
+      validate: jest.fn().mockReturnValue(true),
     }));
     jest.mock('../../database/supabase', () => ({
       supabase: { from: jest.fn() },
@@ -68,6 +70,7 @@ describe('cronManager', () => {
   test('pause stops cron task and marks inactive in DB', async () => {
     jest.mock('node-cron', () => ({
       schedule: jest.fn().mockReturnValue({ stop: jest.fn() }),
+      validate: jest.fn().mockReturnValue(true),
     }));
     jest.mock('../../database/supabase', () => ({
       supabase: { from: jest.fn() },
@@ -97,6 +100,7 @@ describe('cronManager', () => {
   test('createSchedule inserts into DB and registers cron', async () => {
     jest.mock('node-cron', () => ({
       schedule: jest.fn().mockReturnValue({ stop: jest.fn() }),
+      validate: jest.fn().mockReturnValue(true),
     }));
     jest.mock('../../database/supabase', () => ({
       supabase: { from: jest.fn() },

@@ -224,8 +224,12 @@ async function handleFreeMessage(bot, msg) {
     } else if (text.length > 5) {
       chosenIdea = text;
     } else {
-      await bot.sendMessage(msg.chat.id, `Escolha invalida. Responda com um numero de 1 a ${options.length}.`);
-      return;
+      if (options.length > 0) {
+        await bot.sendMessage(msg.chat.id, `Escolha invalida. Responda com um numero de 1 a ${options.length}.`);
+      } else {
+        chosenIdea = text;
+      }
+      if (!chosenIdea) return;
     }
 
     pendingCronFlow = null;
@@ -253,7 +257,7 @@ async function handleFreeMessage(bot, msg) {
     const response = await runAgent(
       EMILY_SYSTEM_PROMPT,
       msg.text,
-      { model: 'claude-haiku-4-5-20251001', maxTokens: 2048 }
+      { model: 'haiku', maxTokens: 2048 }
     );
 
     // Detect content creation intent
@@ -267,7 +271,7 @@ async function handleFreeMessage(bot, msg) {
         `📋 Entendido! Criando conteudo sobre: *${tema.trim()}*`,
         { parse_mode: 'Markdown' }
       );
-      return handleConteudo(bot, msg, tema.trim(), formato.trim());
+      return await handleConteudo(bot, msg, tema.trim(), formato.trim());
     }
 
     // Detect scheduling intent
