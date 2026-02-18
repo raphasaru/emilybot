@@ -1,7 +1,12 @@
-const { runContentFlow } = require('../flows/contentCreation');
+const { runContentFlow, runContentFromResearch } = require('../flows/contentCreation');
 const { supabase } = require('../database/supabase');
 const { runAgent } = require('../agents/agentRunner');
 const { logger } = require('../utils/logger');
+const cronManager = require('../scheduler/cronManager');
+
+// In-memory state for interactive cron flows
+let pendingCronFlow = null;
+// { schedule, researchText, remainingAgents, options: string[] }
 
 const EMILY_SYSTEM_PROMPT = `Voce e Emily, COO e orquestradora de uma equipe de agentes de IA que trabalha para Raphael, um gestor de trafego e criador de conteudo especializado em Meta Ads, Google Ads, IA e marketing digital.
 
@@ -14,16 +19,42 @@ Suas responsabilidades:
 
 Seja direta, profissional e proativa. Quando acionar multiplos agentes, informe o progresso.
 
-IMPORTANTE: Quando o usuario pedir para criar conteudo, responda EXATAMENTE com:
+IMPORTANTE — quando o usuario pedir para criar CONTEUDO, responda EXATAMENTE com:
 [ACAO:CONTEUDO] tema: <tema extraido> | formato: <formato ou post_unico>
 
+IMPORTANTE — quando o usuario pedir para AGENDAR criacao de conteudo, colete as informacoes e responda EXATAMENTE com:
+[ACAO:AGENDAR] nome: <nome do agendamento> | cron: "<expressao cron>" | topics: "<tema1,tema2>" | format: <formato>
+
+Expressoes cron comuns:
+- Todo dia as 8h: "0 8 * * *"
+- Seg e Qui as 9h: "0 9 * * 1,4"
+- A cada 6h: "0 */6 * * *"
+- Dias uteis as 7h: "0 7 * * 1-5"
+
+Se o usuario nao especificar topics, use "IA,Meta Ads,marketing digital". Se nao especificar formato, use "post_unico".
+
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
+
+function parseResearchOptions(researchText) {
+  const lines = researchText.split('\n');
+  const options = [];
+  for (const line of lines) {
+    const match = line.match(/^\s*\d+[\.\)]\s*(.+)/);
+    if (match && match[1].trim().length > 10) {
+      options.push(match[1].trim());
+    }
+  }
+  if (!options.length) {
+    return lines.filter((l) => l.trim().length > 20).slice(0, 3);
+  }
+  return options.slice(0, 5);
+}
 
 async function handleStart(bot, msg) {
   await bot.sendMessage(
     msg.chat.id,
     'Ola! Sou Emily, sua COO virtual.\n\n' +
-    'Posso criar conteudo, gerenciar agentes e muito mais.\n\n' +
+    'Posso criar conteudo, gerenciar agentes, agendar tarefas e muito mais.\n\n' +
     'Use /ajuda para ver os comandos disponiveis.'
   );
 }
@@ -61,7 +92,6 @@ async function handleConteudo(bot, msg, topic, format = 'post_unico') {
     const result = await runContentFlow(topic, format);
     const content = result.final_content || 'Conteudo nao gerado';
 
-    // Telegram has a 4096 char limit per message
     const chunks = content.match(/.{1,4000}/gs) || [content];
     for (const chunk of chunks) {
       await bot.sendMessage(msg.chat.id, chunk);
@@ -77,6 +107,53 @@ async function handleConteudo(bot, msg, topic, format = 'post_unico') {
   }
 }
 
+async function handleAgendamentos(bot, msg) {
+  try {
+    const schedules = await cronManager.list();
+
+    if (!schedules.length) {
+      return bot.sendMessage(msg.chat.id, 'Nenhum agendamento cadastrado.');
+    }
+
+    const list = schedules
+      .map(
+        (s) =>
+          `${s.is_active ? '✅' : '⏸️'} *${s.name}*\n` +
+          `   Cron: \`${s.cron_expression}\`\n` +
+          `   Temas: ${(s.topics || []).join(', ') || 'automatico'}\n` +
+          `   Formato: ${s.format}\n` +
+          `   ID: \`${s.id}\``
+      )
+      .join('\n\n');
+
+    await bot.sendMessage(msg.chat.id, `*Agendamentos:*\n\n${list}`, {
+      parse_mode: 'Markdown',
+    });
+  } catch (err) {
+    logger.error('List schedules failed', { error: err.message });
+    await bot.sendMessage(msg.chat.id, `❌ Erro: ${err.message}`);
+  }
+}
+
+async function handlePausar(bot, msg, scheduleId) {
+  if (!scheduleId) {
+    return bot.sendMessage(
+      msg.chat.id,
+      'Use: /pausar <id>\nVeja os IDs com /agendamentos'
+    );
+  }
+
+  try {
+    await cronManager.pause(scheduleId);
+    await bot.sendMessage(msg.chat.id, `⏸️ Agendamento \`${scheduleId}\` pausado.`, {
+      parse_mode: 'Markdown',
+    });
+  } catch (err) {
+    logger.error('Pause schedule failed', { error: err.message });
+    await bot.sendMessage(msg.chat.id, `❌ Erro: ${err.message}`);
+  }
+}
+
 async function handleAjuda(bot, msg) {
   await bot.sendMessage(
     msg.chat.id,
@@ -84,6 +161,8 @@ async function handleAjuda(bot, msg) {
     '/start — Apresentacao\n' +
     '/agentes — Lista agentes ativos\n' +
     '/conteudo <tema> — Criar conteudo\n' +
+    '/agendamentos — Lista cron jobs\n' +
+    '/pausar <id> — Pausa um agendamento\n' +
     '/status — Status do sistema\n' +
     '/ajuda — Este menu',
     { parse_mode: 'Markdown' }
@@ -91,22 +170,83 @@ async function handleAjuda(bot, msg) {
 }
 
 async function handleStatus(bot, msg) {
-  const [{ count: agentCount }, { count: draftCount }] = await Promise.all([
-    supabase.from('agents').select('*', { count: 'exact', head: true }).eq('is_active', true),
-    supabase.from('content_drafts').select('*', { count: 'exact', head: true }),
-  ]);
+  const [{ count: agentCount }, { count: draftCount }, { count: scheduleCount }] =
+    await Promise.all([
+      supabase.from('agents').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('content_drafts').select('*', { count: 'exact', head: true }),
+      supabase.from('schedules').select('*', { count: 'exact', head: true }).eq('is_active', true),
+    ]);
 
   await bot.sendMessage(
     msg.chat.id,
     `*Status do sistema:*\n\n` +
     `🤖 Agentes ativos: ${agentCount || 0}\n` +
     `📝 Conteudos gerados: ${draftCount || 0}\n` +
+    `⏰ Agendamentos ativos: ${scheduleCount || 0}\n` +
     `✅ Sistema operacional`,
     { parse_mode: 'Markdown' }
   );
 }
 
+// Called by cronManager when research is ready — presents options to user
+async function onCronResearchReady(bot, chatId, schedule, researchText, remainingAgents) {
+  const options = parseResearchOptions(researchText);
+
+  pendingCronFlow = { schedule, researchText, remainingAgents, options };
+
+  if (!options.length) {
+    await bot.sendMessage(
+      chatId,
+      `🔔 *${schedule.name}* — Pesquisa pronta:\n\n${researchText.slice(0, 1500)}\n\nQual pauta voce quer? Descreva brevemente.`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  const optionsList = options.map((o, i) => `${i + 1}. ${o}`).join('\n');
+  await bot.sendMessage(
+    chatId,
+    `🔔 *${schedule.name}* — Pautas de hoje:\n\n${optionsList}\n\nQual voce quer? (responda o numero)`,
+    { parse_mode: 'Markdown' }
+  );
+}
+
 async function handleFreeMessage(bot, msg) {
+  // Intercept if waiting for pauta choice from a cron flow
+  if (pendingCronFlow) {
+    const text = msg.text.trim();
+    const choiceNum = parseInt(text, 10);
+    const { schedule, researchText, remainingAgents, options } = pendingCronFlow;
+
+    let chosenIdea;
+    if (!isNaN(choiceNum) && choiceNum >= 1 && choiceNum <= options.length) {
+      chosenIdea = options[choiceNum - 1];
+    } else if (text.length > 5) {
+      chosenIdea = text;
+    } else {
+      await bot.sendMessage(msg.chat.id, `Escolha invalida. Responda com um numero de 1 a ${options.length}.`);
+      return;
+    }
+
+    pendingCronFlow = null;
+    await bot.sendMessage(msg.chat.id, `✅ Pauta selecionada! Escrevendo conteudo...`);
+
+    try {
+      const result = await runContentFromResearch(researchText, chosenIdea, schedule.format, remainingAgents);
+      const content = result.final_content || 'Conteudo nao gerado';
+      const chunks = content.match(/.{1,4000}/gs) || [content];
+      for (const chunk of chunks) {
+        await bot.sendMessage(msg.chat.id, chunk);
+      }
+      await bot.sendMessage(msg.chat.id, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+    } catch (err) {
+      logger.error('Content from research failed', { error: err.message });
+      await bot.sendMessage(msg.chat.id, `❌ Erro ao escrever conteudo: ${err.message}`);
+    }
+    return;
+  }
+
+  // Normal Emily flow
   try {
     await bot.sendChatAction(msg.chat.id, 'typing');
 
@@ -116,12 +256,12 @@ async function handleFreeMessage(bot, msg) {
       { model: 'claude-haiku-4-5-20251001', maxTokens: 2048 }
     );
 
-    // Check if Emily wants to trigger content flow
-    const actionMatch = response.match(
+    // Detect content creation intent
+    const contentMatch = response.match(
       /\[ACAO:CONTEUDO\]\s*tema:\s*(.+?)\s*\|\s*formato:\s*(.+)/
     );
-    if (actionMatch) {
-      const [, tema, formato] = actionMatch;
+    if (contentMatch) {
+      const [, tema, formato] = contentMatch;
       await bot.sendMessage(
         msg.chat.id,
         `📋 Entendido! Criando conteudo sobre: *${tema.trim()}*`,
@@ -130,9 +270,44 @@ async function handleFreeMessage(bot, msg) {
       return handleConteudo(bot, msg, tema.trim(), formato.trim());
     }
 
+    // Detect scheduling intent
+    const scheduleMatch = response.match(
+      /\[ACAO:AGENDAR\]\s*nome:\s*(.+?)\s*\|\s*cron:\s*"(.+?)"\s*\|\s*topics:\s*"(.+?)"\s*\|\s*format:\s*(.+)/
+    );
+    if (scheduleMatch) {
+      const [, nome, cronExpr, topicsStr, format] = scheduleMatch;
+      const topics = topicsStr.split(',').map((t) => t.trim()).filter(Boolean);
+
+      await bot.sendMessage(msg.chat.id, `⏰ Criando agendamento *${nome.trim()}*...`, {
+        parse_mode: 'Markdown',
+      });
+
+      try {
+        const schedule = await cronManager.createSchedule(bot, String(msg.chat.id), {
+          name: nome.trim(),
+          cron_expression: cronExpr.trim(),
+          topics,
+          format: format.trim(),
+        });
+
+        await bot.sendMessage(
+          msg.chat.id,
+          `✅ Agendamento *${schedule.name}* criado!\n` +
+          `⏰ Expressao: \`${schedule.cron_expression}\`\n` +
+          `📌 Temas: ${topics.join(', ')}\n` +
+          `📄 Formato: ${schedule.format}\n\n` +
+          `Use /agendamentos para ver todos.`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (err) {
+        logger.error('Create schedule failed', { error: err.message });
+        await bot.sendMessage(msg.chat.id, `❌ Erro ao criar agendamento: ${err.message}`);
+      }
+      return;
+    }
+
     await bot.sendMessage(msg.chat.id, response);
 
-    // Persist conversation (fire and forget)
     supabase.from('conversations').insert([
       { chat_id: String(msg.chat.id), role: 'user', content: msg.text },
       { chat_id: String(msg.chat.id), role: 'assistant', content: response, agent_name: 'emily' },
@@ -149,7 +324,11 @@ module.exports = {
   handleStart,
   handleAgentes,
   handleConteudo,
+  handleAgendamentos,
+  handlePausar,
   handleAjuda,
   handleStatus,
   handleFreeMessage,
+  onCronResearchReady,
+  _setPendingCronFlow: (v) => { pendingCronFlow = v; },
 };
