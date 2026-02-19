@@ -16,6 +16,7 @@ const {
   handleBranding,
   handleFreeMessage,
   handleCriarAgente,
+  handlePipeline,
 } = require('./handlers');
 const { logger } = require('../utils/logger');
 
@@ -84,6 +85,11 @@ function createBot(tenant) {
   bot.onText(/\/branding(?:\s+(.+))?/, (msg, match) => {
     if (!guard(msg.chat.id)) return;
     handleBranding(bot, msg, tenant, match?.[1]?.trim());
+  });
+
+  bot.onText(/\/pipeline/, (msg) => {
+    if (!guard(msg.chat.id)) return;
+    handlePipeline(bot, msg, tenant);
   });
 
   // Inline button callbacks

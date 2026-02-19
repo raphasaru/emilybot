@@ -5,7 +5,7 @@ const { supabase } = require('../database/supabase');
 const { runAgent } = require('../agents/agentRunner');
 const { logger } = require('../utils/logger');
 const cronManager = require('../scheduler/cronManager');
-const { createAgent, getNextPosition } = require('../agents/agentFactory');
+const { createAgent, getNextPosition, seedDefaultPipeline } = require('../agents/agentFactory');
 const { generatePostUnico, generateCarouselImages, parseCarouselCards } = require('../services/imageGenerator');
 const { checkRateLimit } = require('../utils/rateLimiter');
 
@@ -775,6 +775,7 @@ async function handleAjuda(bot, msg, tenant) {
     '/agendamentos — Lista cron jobs\n' +
     '/pausar \\<id\\> — Pausa um agendamento\n' +
     '/status — Status do sistema\n' +
+    '/pipeline — Instalar agentes de conteudo\n' +
     '/branding — Ver ou alterar visual\n' +
     '/ajuda — Este menu',
     { parse_mode: 'MarkdownV2' }
@@ -1060,6 +1061,26 @@ async function handleCriarAgente(bot, msg, tenant) {
   await startAgentOnboarding(bot, msg.chat.id);
 }
 
+async function handlePipeline(bot, msg, tenant) {
+  const chatId = msg.chat.id;
+  if (!tenant?.id) {
+    return bot.sendMessage(chatId, '❌ Tenant nao identificado.');
+  }
+
+  try {
+    await bot.sendMessage(chatId, '🔧 Instalando pipeline de criacao de conteudo...');
+    const agents = await seedDefaultPipeline(tenant);
+    const list = agents.map((a) => `  ${a.position_in_flow}. ${a.display_name} (${a.role})`).join('\n');
+    await bot.sendMessage(
+      chatId,
+      `✅ Pipeline instalado com sucesso!\n\n${list}\n\nAgora voce pode usar /conteudo <tema> para criar conteudo.`
+    );
+  } catch (err) {
+    logger.error('Pipeline install failed', { error: err.message, tenantId: tenant?.id });
+    await bot.sendMessage(chatId, `❌ ${err.message}`);
+  }
+}
+
 module.exports = {
   handleStart,
   handleAgentes,
@@ -1076,6 +1097,7 @@ module.exports = {
   handleFreeMessage,
   onCronResearchReady,
   handleCriarAgente,
+  handlePipeline,
   _setPendingCronFlow: (chatId, v) => v ? pendingCronFlows.set(String(chatId), v) : pendingCronFlows.delete(String(chatId)),
   _setPendingAgentFlow: (chatId, v) => v ? pendingAgentFlows.set(String(chatId), v) : pendingAgentFlows.delete(String(chatId)),
   _setPendingFormatFlow: (chatId, v) => v ? pendingFormatFlows.set(String(chatId), v) : pendingFormatFlows.delete(String(chatId)),
