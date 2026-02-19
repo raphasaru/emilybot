@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getSupabase } from '../../lib/supabase';
+import { getSupabase, getTenantId } from '../../lib/supabase';
 import DraftEditor from './DraftEditor';
 
 export const dynamic = 'force-dynamic';
@@ -10,10 +10,12 @@ interface Props {
 
 export default async function DraftPage({ params }: Props) {
   const supabase = getSupabase();
+  const tenantId = getTenantId();
   const { data: draft, error } = await supabase
     .from('content_drafts')
-    .select('id, topic, format, draft, final_content, image_urls')
+    .select('id, topic, format, draft, final_content, image_urls, created_at')
     .eq('id', params.id)
+    .eq('tenant_id', tenantId)
     .single();
 
   if (error || !draft) notFound();

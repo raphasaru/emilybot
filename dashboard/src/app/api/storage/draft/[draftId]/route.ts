@@ -1,14 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { getSupabase } from '../../../../lib/supabase';
 
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { draftId: string } }
 ) {
+  const tenantId = headers().get('x-tenant-id');
+  if (!tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { draftId } = params;
   const supabase = getSupabase();
 
-  // List all files under this draft's folder
+  // Verify draft belongs to this tenant
+  const { data: draft } = await supabase
+    .from('content_drafts')
+    .select('id')
+    .eq('id', draftId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (!draft) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
   const { data: files, error: listErr } = await supabase.storage
     .from('draft-images')
     .list(draftId);
@@ -23,11 +36,11 @@ export async function DELETE(
     if (removeErr) return NextResponse.json({ error: removeErr.message }, { status: 500 });
   }
 
-  // Clear image_urls on the draft (if it still exists)
   await supabase
     .from('content_drafts')
     .update({ image_urls: null })
-    .eq('id', draftId);
+    .eq('id', draftId)
+    .eq('tenant_id', tenantId);
 
   return NextResponse.json({ ok: true, deleted: files?.length ?? 0 });
 }

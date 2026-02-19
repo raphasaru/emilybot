@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,12 +17,12 @@ export default function LoginPage() {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ name, password }),
     });
     if (res.ok) {
       router.push('/drafts');
     } else {
-      setError('Senha incorreta');
+      setError('Usuário ou senha incorretos');
       setLoading(false);
     }
   }
@@ -31,12 +32,19 @@ export default function LoginPage() {
       <form onSubmit={handleSubmit} className="bg-gray-900 p-8 rounded-lg w-80 space-y-4">
         <h1 className="text-xl font-bold text-center">EmilyBot</h1>
         <input
+          type="text"
+          placeholder="Seu nome"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+          autoFocus
+        />
+        <input
           type="password"
           placeholder="Senha"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
-          autoFocus
         />
         {error && <p className="text-red-400 text-sm">{error}</p>}
         <button

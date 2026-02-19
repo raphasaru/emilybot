@@ -35,11 +35,11 @@ function decryptKeys(tenant) {
   };
 }
 
-async function createTenant({ name, bot_token, chat_id, gemini_api_key, brave_search_key, fal_key, branding, emily_tone }) {
+async function createTenant({ name, bot_token, chat_id, gemini_api_key, brave_search_key, fal_key, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash }) {
   const encrypted = encryptKeys({ gemini_api_key, brave_search_key, fal_key });
   const { data, error } = await supabase
     .from('tenants')
-    .insert({ name, bot_token, chat_id, ...encrypted, branding, emily_tone })
+    .insert({ name, bot_token, chat_id, ...encrypted, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash })
     .select()
     .single();
 

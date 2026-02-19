@@ -28,7 +28,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
-export default function DraftsList({ drafts: initial }: { drafts: Draft[] }) {
+export default function DraftsList({ drafts: initial, tenantId }: { drafts: Draft[]; tenantId: string }) {
   const router = useRouter();
   const [drafts, setDrafts] = useState(initial);
   const [query, setQuery] = useState('');
@@ -55,7 +55,7 @@ export default function DraftsList({ drafts: initial }: { drafts: Draft[] }) {
       .channel('content_drafts_changes')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'content_drafts' },
+        { event: 'INSERT', schema: 'public', table: 'content_drafts', filter: `tenant_id=eq.${tenantId}` },
         (payload) => {
           const row = payload.new as Draft;
           setDrafts((prev) => [row, ...prev]);

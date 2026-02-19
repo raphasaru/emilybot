@@ -1,4 +1,4 @@
-import { getSupabase } from '../lib/supabase';
+import { getSupabase, getTenantId } from '../lib/supabase';
 import LogoutButton from './LogoutButton';
 import DraftsList from './DraftsList';
 
@@ -6,9 +6,11 @@ export const dynamic = 'force-dynamic';
 
 export default async function DraftsPage() {
   const supabase = getSupabase();
+  const tenantId = getTenantId();
   const { data: drafts, error } = await supabase
     .from('content_drafts')
     .select('id, topic, format, status, created_at')
+    .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
     .limit(100);
 
@@ -35,7 +37,7 @@ export default async function DraftsPage() {
           <LogoutButton />
         </div>
       </div>
-      <DraftsList drafts={drafts ?? []} />
+      <DraftsList drafts={drafts ?? []} tenantId={tenantId} />
     </div>
   );
 }

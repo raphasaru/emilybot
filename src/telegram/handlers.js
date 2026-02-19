@@ -76,10 +76,66 @@ Exemplos que ativam isso: "usa esse contexto para criar um carrossel: ...", "cri
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
 
 function getEmilyPrompt(tenant) {
-  if (tenant?.emily_tone) {
-    return BASE_EMILY_PROMPT + `\n\nTOM DE VOZ PERSONALIZADO: ${tenant.emily_tone}`;
+  let base = BASE_EMILY_PROMPT;
+
+  if (tenant?.owner_name || tenant?.niche || tenant?.specialization) {
+    const ownerName = tenant.owner_name || 'seu usuario';
+    const niche = tenant.niche || 'marketing digital';
+    const specialization = tenant.specialization || 'criacao de conteudo e gestao de trafego';
+
+    base = `Voce e Emily, COO e orquestradora de uma equipe de agentes de IA que trabalha para ${ownerName}, especializado em ${niche}.
+
+Suas responsabilidades:
+1. Entender o que ${ownerName} precisa e acionar os subagentes corretos
+2. Coordenar o fluxo de trabalho entre agentes
+3. Criar novos subagentes quando solicitado, coletando: nome, funcao, tom de voz, instrucoes especificas
+4. Reportar resultados de forma clara e objetiva
+5. Gerenciar agendamentos e automacoes
+
+Areas de atuacao: ${specialization}.
+
+Seja direta, profissional e proativa. Quando acionar multiplos agentes, informe o progresso.
+
+IMPORTANTE — quando o usuario pedir para criar CONTEUDO e ja souber o tema, responda EXATAMENTE com:
+[ACAO:CONTEUDO] tema: <tema extraido> | formato: <formato ou post_unico>
+
+IMPORTANTE — quando o usuario quiser criar conteudo MAS NAO SOUBER O TEMA, ou pedir que o pesquisador sugira um tema, responda EXATAMENTE com:
+[ACAO:PESQUISAR]
+
+IMPORTANTE — quando o usuario pedir para AGENDAR criacao de conteudo, colete as informacoes e responda EXATAMENTE com:
+[ACAO:AGENDAR] nome: <nome do agendamento> | cron: "<expressao cron>" | topics: "<tema1,tema2>" | format: <formato>
+
+Expressoes cron comuns:
+- Todo dia as 8h: "0 8 * * *"
+- Seg e Qui as 9h: "0 9 * * 1,4"
+- A cada 6h: "0 */6 * * *"
+- Dias uteis as 7h: "0 7 * * 1-5"
+
+Se o usuario nao especificar topics, use os temas do nicho: "${niche}". Se nao especificar formato, use "post_unico".
+
+IMPORTANTE — quando o usuario pedir para CRIAR um novo agente ou subagente, responda EXATAMENTE com:
+[ACAO:CRIAR_AGENTE]
+
+Exemplos de pedidos que ativam isso: "cria um agente", "quero um novo agente", "adiciona um agente revisor", "criar subagente".
+
+IMPORTANTE — quando o usuario quiser gerar uma imagem de post com uma FRASE EXATA que ele mesmo escreveu (sem reescrever, sem pipeline de criacao), responda EXATAMENTE com:
+[ACAO:POST_DIRETO] texto: <frase exata copiada literalmente da mensagem do usuario>
+
+Exemplos que ativam isso: "quero um post com exatamente essa frase: ...", "gera imagem com esse texto exato: ...", "cria um post com o texto que escrevi: ...", "quero um conteudo novo de um unico post com exatamente essa frase: ...".
+
+IMPORTANTE — quando o usuario mandar um BLOCO DE TEXTO/CONTEXTO e quiser criar conteudo baseado nele (sem pesquisa nova), responda EXATAMENTE com:
+[ACAO:CONTEXTO] topic: <titulo curto extraido do contexto> | texto: <texto de contexto copiado literalmente da mensagem>
+
+Exemplos que ativam isso: "usa esse contexto para criar um carrossel: ...", "cria conteudo com esse texto: ...", "aqui esta a explicacao, faz um post sobre isso: ...", "pega essa resposta do Claude e faz um carrossel: ...", "com base nisso aqui cria um carrossel: ...".
+
+Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
   }
-  return BASE_EMILY_PROMPT;
+
+  if (tenant?.emily_tone) {
+    base += `\n\nTOM DE VOZ PERSONALIZADO: ${tenant.emily_tone}`;
+  }
+
+  return base;
 }
 
 function mkTenantKeys(tenant) {
@@ -418,7 +474,7 @@ async function handleImageCallback(bot, query, tenant) {
         raw = raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
         postText = raw;
       } catch {}
-      const imgBuf = await generatePostUnico(postText);
+      const imgBuf = await generatePostUnico(postText, tenant?.branding);
       await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
       if (draft_id) {
         try {
@@ -569,7 +625,7 @@ async function handleFormatCallback(bot, query, tenant) {
     if (format === 'post_unico') {
       await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
       try {
-        const imgBuf = await generatePostUnico(directText);
+        const imgBuf = await generatePostUnico(directText, tenant?.branding);
         await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único' }, { filename: 'post.png', contentType: 'image/png' });
       } catch (err) {
         logger.error('Direct post image failed', { error: err.message });
@@ -768,8 +824,13 @@ async function handleBranding(bot, msg, tenant, args) {
       `Fonte: ${b.font || 'Montserrat'}`,
       `Logo: ${b.logo_url || 'nenhum'}`,
       '',
+      `*IDV2 (Post único):*`,
+      `Nome: ${b.display_name || 'Rapha Saru'}`,
+      `Username: ${b.username ? '@' + b.username.replace(/^@/, '') : '@raphasaru'}`,
+      `Foto de perfil: ${b.profile_pic_url || 'padrao (saru-profile.png)'}`,
+      '',
       'Para alterar: /branding <campo> <valor>',
-      'Campos: cor, cor2, texto\\_cor, fonte, logo, preset',
+      'Campos: cor, cor2, texto\\_cor, fonte, logo, preset, nome, username, profile\\_pic',
     ];
     return bot.sendMessage(chatId, lines.join('\n'), { parse_mode: 'Markdown' });
   }
@@ -786,10 +847,13 @@ async function handleBranding(bot, msg, tenant, args) {
     fonte: 'font',
     logo: 'logo_url',
     preset: 'template_preset',
+    nome: 'display_name',
+    username: 'username',
+    profile_pic: 'profile_pic_url',
   };
 
   const key = fieldMap[field];
-  if (!key) return bot.sendMessage(chatId, `Campo invalido: ${field}\nValidos: cor, cor2, texto_cor, fonte, logo, preset`);
+  if (!key) return bot.sendMessage(chatId, `Campo invalido: ${field}\nValidos: cor, cor2, texto_cor, fonte, logo, preset, nome, username, profile_pic`);
 
   if (key === 'template_preset' && !['modern', 'clean', 'bold'].includes(value)) {
     return bot.sendMessage(chatId, 'Presets disponiveis: modern, clean, bold');

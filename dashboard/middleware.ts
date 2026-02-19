@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCookie } from './src/app/lib/auth';
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login'];
 
@@ -7,11 +8,15 @@ export function middleware(req: NextRequest) {
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
-  const token = req.cookies.get('dash_auth')?.value;
-  if (token !== process.env.DASHBOARD_AUTH_TOKEN) {
-    return NextResponse.redirect(new URL('/login', req.url));
-  }
-  return NextResponse.next();
+  const cookie = req.cookies.get('dash_auth')?.value;
+  if (!cookie) return NextResponse.redirect(new URL('/login', req.url));
+
+  const tenantId = verifyCookie(cookie);
+  if (!tenantId) return NextResponse.redirect(new URL('/login', req.url));
+
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set('x-tenant-id', tenantId);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

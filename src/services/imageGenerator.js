@@ -101,7 +101,23 @@ function buildCarouselCardPrompt(card) {
   }
 }
 
-async function generatePostUnico(text) {
+async function loadProfilePic(profilePicUrl) {
+  if (profilePicUrl) {
+    try {
+      const { data } = await axios.get(profilePicUrl, { responseType: 'arraybuffer', timeout: 15000 });
+      return await loadImage(Buffer.from(data));
+    } catch (err) {
+      logger.warn('Failed to load tenant profile pic, falling back to default', { error: err.message });
+    }
+  }
+  return loadImage(PROFILE_PIC_PATH);
+}
+
+async function generatePostUnico(text, branding = {}) {
+  const displayName = branding.display_name || 'Rapha Saru';
+  const username = branding.username ? `@${branding.username.replace(/^@/, '')}` : '@raphasaru';
+  const profilePicUrl = branding.profile_pic_url || null;
+
   logger.info('Generating post_unico image (canvas)');
   const S = 1.8;
   const W = Math.round(600 * S); // 1080
@@ -153,14 +169,14 @@ async function generatePostUnico(text) {
   ctx.beginPath();
   ctx.arc(PCX, picCY, PR, 0, Math.PI * 2);
   ctx.clip();
-  const profileImg = await loadImage(PROFILE_PIC_PATH);
+  const profileImg = await loadProfilePic(profilePicUrl);
   ctx.drawImage(profileImg, PCX - PR, picCY - PR, PR * 2, PR * 2);
   ctx.restore();
 
   // Display name
   ctx.font = `bold ${NAME_SIZE}px ${FONT}`;
   ctx.fillStyle = '#0F1419';
-  const nameText = 'Rapha Saru';
+  const nameText = displayName;
   ctx.fillText(nameText, nameX, nameBaseY);
   const nameW = ctx.measureText(nameText).width;
 
@@ -187,7 +203,7 @@ async function generatePostUnico(text) {
   // Handle + · Follow
   ctx.font = `${HANDLE_SIZE}px ${FONT}`;
   ctx.fillStyle = '#536471';
-  const handlePart = '@raphasaru · ';
+  const handlePart = `${username} · `;
   ctx.fillText(handlePart, nameX, handleBaseY);
   const handlePartW = ctx.measureText(handlePart).width;
 
