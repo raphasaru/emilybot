@@ -15,12 +15,13 @@ function extractText(input) {
   return input;
 }
 
-async function runAgent(systemPrompt, input, { model = 'haiku', maxTokens = 4096 } = {}) {
+async function runAgent(systemPrompt, input, { model = 'haiku', maxTokens = 4096, geminiApiKey } = {}) {
   const message = extractText(input);
   const modelId = MODEL_MAP[model] || model;
+  const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
   logger.debug('Running agent via Gemini', { model: modelId, messageLength: message.length });
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
   const body = {
     system_instruction: { parts: [{ text: systemPrompt }] },
