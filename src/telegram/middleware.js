@@ -1,12 +1,18 @@
-const { logger } = require('../utils/logger');
+'use strict';
 
-function isAuthorized(chatId) {
-  const allowed = process.env.TELEGRAM_ALLOWED_CHAT_ID;
-  if (!allowed) {
-    logger.warn('TELEGRAM_ALLOWED_CHAT_ID not set — rejecting all');
-    return false;
-  }
-  return String(chatId) === String(allowed);
+// In-memory tenant cache — populated by BotManager on boot
+const tenantCache = new Map(); // chatId (string) -> tenant object
+
+function setTenantCache(chatId, tenant) {
+  tenantCache.set(String(chatId), tenant);
 }
 
-module.exports = { isAuthorized };
+function getTenantFromCache(chatId) {
+  return tenantCache.get(String(chatId)) || null;
+}
+
+function clearTenantCache(chatId) {
+  tenantCache.delete(String(chatId));
+}
+
+module.exports = { setTenantCache, getTenantFromCache, clearTenantCache };
