@@ -17,7 +17,7 @@ export default async function DraftsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
+    <div className="max-w-7xl mx-auto p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Content Drafts</h1>
         <div className="flex items-center gap-4">

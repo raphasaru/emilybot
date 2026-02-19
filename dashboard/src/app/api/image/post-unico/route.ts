@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRequire } from 'module';
 import path from 'path';
 import { uploadImage, saveImageUrls } from '../../../lib/storageUpload';
 
 export const runtime = 'nodejs';
 
-const require = createRequire(import.meta.url);
-const { generatePostUnico } = require(
+// eslint-disable-next-line no-eval
+const nativeRequire = eval('require');
+const { generatePostUnico } = nativeRequire(
   path.resolve(process.cwd(), '..', 'src', 'services', 'imageGenerator')
 );
 

@@ -19,7 +19,7 @@ export default async function DraftPage({ params }: Props) {
   if (error || !draft) notFound();
 
   return (
-    <div className="max-w-3xl mx-auto p-8">
+    <div className="max-w-5xl mx-auto p-8">
       <div className="mb-4">
         <a href="/drafts" className="text-sm text-gray-400 hover:text-gray-200">
           ← Drafts

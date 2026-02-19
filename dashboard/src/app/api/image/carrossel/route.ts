@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRequire } from 'module';
 import path from 'path';
 import { uploadImage, saveImageUrls } from '../../../lib/storageUpload';
 
 export const runtime = 'nodejs';
 
-const require = createRequire(import.meta.url);
-const { generateCarouselImages, parseCarouselCards } = require(
+// eslint-disable-next-line no-eval
+const nativeRequire = eval('require');
+const { generateCarouselImages, parseCarouselCards } = nativeRequire(
   path.resolve(process.cwd(), '..', 'src', 'services', 'imageGenerator')
 );
 

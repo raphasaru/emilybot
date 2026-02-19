@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { parseForEdit, buildForSave } from '../../lib/draftParser';
 
 interface Draft {
@@ -13,6 +14,7 @@ interface Draft {
 }
 
 export default function DraftEditor({ draft }: { draft: Draft }) {
+  const router = useRouter();
   const raw = draft.final_content ?? draft.draft ?? '';
   const initial = parseForEdit(raw);
 
@@ -22,9 +24,33 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
   const [saveStatus, setSaveStatus] = useState('');
   const [imgUrls, setImgUrls] = useState<string[]>(draft.image_urls ?? []);
   const [loading, setLoading] = useState(false);
+  const [zipping, setZipping] = useState(false);
 
   const canGenerate = draft.format === 'post_unico' || draft.format === 'carrossel';
   const isCarousel = draft.format === 'carrossel';
+
+  async function handleDownloadZip() {
+    setZipping(true);
+    try {
+      const res = await fetch('/api/image/zip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: imgUrls, topic: draft.topic }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${draft.topic.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 40)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Erro ao zipar: ' + (err as Error).message);
+    } finally {
+      setZipping(false);
+    }
+  }
 
   function getSavedJson() {
     return buildForSave(text, notes, parsed, raw);
@@ -53,6 +79,7 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
         if (!res.ok) throw new Error(await res.text());
         const { urls } = await res.json();
         setImgUrls(urls);
+        router.refresh();
       } else {
         const res = await fetch('/api/image/carrossel', {
           method: 'POST',
@@ -62,6 +89,7 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
         if (!res.ok) throw new Error(await res.text());
         const { urls } = await res.json();
         setImgUrls(urls);
+        router.refresh();
       }
     } catch (err) {
       alert('Erro ao gerar imagem: ' + (err as Error).message);
@@ -129,14 +157,30 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
       {/* Image gallery */}
       {imgUrls.length > 0 && (
         <div className="mt-6 space-y-3">
-          <p className="text-xs text-gray-500 uppercase tracking-widest">
-            {isCarousel ? `${imgUrls.length} slides gerados` : 'Imagem gerada'}
-          </p>
-          <div className={isCarousel ? 'flex gap-3 overflow-x-auto pb-2' : ''}>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500 uppercase tracking-widest">
+              {isCarousel ? `${imgUrls.length} slides gerados` : 'Imagem gerada'}
+            </p>
+            {isCarousel && (
+              <button
+                onClick={handleDownloadZip}
+                disabled={zipping}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-purple-400 disabled:opacity-50 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                {zipping ? 'Gerando ZIP...' : 'Download ZIP'}
+              </button>
+            )}
+          </div>
+          <div className={isCarousel ? 'flex flex-wrap gap-3' : ''}>
             {imgUrls.map((url, i) => (
               <div
                 key={url}
-                className={`flex-shrink-0 ${isCarousel ? 'w-52' : 'max-w-sm'}`}
+                className={isCarousel ? 'w-48' : 'max-w-sm'}
               >
                 <img
                   src={url}
