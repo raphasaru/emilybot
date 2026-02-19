@@ -379,7 +379,7 @@ async function handleImageCallback(bot, query) {
     return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente para gerar imagem.');
   }
 
-  const { format, final_content } = pendingImageFlow;
+  const { format, final_content, draft_id } = pendingImageFlow;
   pendingImageFlow = null;
 
   if (format === 'post_unico') {
