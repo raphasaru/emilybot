@@ -8,6 +8,6 @@ export function getSupabase() {
   );
 }
 
-export function getTenantId(): string {
-  return headers().get('x-tenant-id')!;
+export function getTenantId(): string | null {
+  return headers().get('x-tenant-id');
 }

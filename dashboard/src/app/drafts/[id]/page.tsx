@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getSupabase, getTenantId } from '../../lib/supabase';
 import DraftEditor from './DraftEditor';
 
@@ -11,6 +11,7 @@ interface Props {
 export default async function DraftPage({ params }: Props) {
   const supabase = getSupabase();
   const tenantId = getTenantId();
+  if (!tenantId) redirect('/login');
   const { data: draft, error } = await supabase
     .from('content_drafts')
     .select('id, topic, format, draft, final_content, image_urls, created_at')

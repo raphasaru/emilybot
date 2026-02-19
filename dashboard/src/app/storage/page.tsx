@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import { getSupabase, getTenantId } from '../lib/supabase';
 import StorageManager from './StorageManager';
 import LogoutButton from '../drafts/LogoutButton';
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function StoragePage() {
   const supabase = getSupabase();
   const tenantId = getTenantId();
+  if (!tenantId) redirect('/login');
 
   const { data: rows, error } = await supabase.rpc('get_storage_usage');
   if (error) {
