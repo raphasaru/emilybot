@@ -1,7 +1,23 @@
 const axios = require('axios');
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-GlobalFonts.registerFromPath('/System/Library/Fonts/Apple Color Emoji.ttc', 'Apple Color Emoji');
+const fs = require('fs');
 const path = require('path');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+// Register bundled Inter font for text rendering
+const INTER_DIR = path.join(__dirname, '../../assets/fonts');
+try {
+  GlobalFonts.registerFromPath(path.join(INTER_DIR, 'Inter-Regular.ttf'), 'Inter');
+  GlobalFonts.registerFromPath(path.join(INTER_DIR, 'Inter-Bold.ttf'), 'Inter');
+} catch {}
+// Register color emoji font — try macOS then common Linux paths
+const EMOJI_FONT_PATHS = [
+  '/System/Library/Fonts/Apple Color Emoji.ttc',
+  '/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf',
+  '/usr/share/fonts/noto-emoji/NotoColorEmoji.ttf',
+  '/usr/share/fonts/google-noto-emoji-color-fonts/NotoColorEmoji.ttf',
+];
+for (const p of EMOJI_FONT_PATHS) {
+  if (fs.existsSync(p)) { try { GlobalFonts.registerFromPath(p, 'Color Emoji'); } catch {} break; }
+}
 const { logger } = require('../utils/logger');
 
 const PROFILE_PIC_PATH = path.join(__dirname, '../../saru-profile.png');
@@ -113,17 +129,30 @@ async function loadProfilePic(profilePicUrl) {
   return loadImage(PROFILE_PIC_PATH);
 }
 
-async function generatePostUnico(text, branding = {}) {
+async function condenseTextForPost(text, geminiApiKey) {
+  if (text.length <= 400) return text;
+  const { runAgent } = require('../agents/agentRunner');
+  const prompt = `Adapte o texto abaixo para caber em no máximo 400 caracteres. Mantenha o impacto e a mensagem principal. Não corte — reescreva de forma mais concisa. Retorne APENAS o texto adaptado, sem aspas, sem explicações.\n\nTexto:\n${text}`;
+  try {
+    const result = await runAgent('Você é um especialista em copywriting conciso para redes sociais.', prompt, { model: 'haiku', maxTokens: 500, geminiApiKey });
+    return result.trim().slice(0, 400);
+  } catch {
+    return text.slice(0, 400);
+  }
+}
+
+async function generatePostUnico(text, branding = {}, geminiApiKey = null) {
   const displayName = branding.display_name || 'Rapha Saru';
   const username = branding.username ? `@${branding.username.replace(/^@/, '')}` : '@raphasaru';
   const profilePicUrl = branding.profile_pic_url || null;
 
+  text = await condenseTextForPost(text, geminiApiKey);
   logger.info('Generating post_unico image (canvas)');
   const S = 1.8;
   const W = Math.round(600 * S); // 1080
   const H = 1350;
   const PAD = Math.round(28 * S);
-  const FONT = '"Helvetica Neue", Arial, "Apple Color Emoji", sans-serif';
+  const FONT = 'Inter, "DejaVu Sans", sans-serif, "Color Emoji"';
   const FONT_SIZE = Math.round(21 * S);
   const LH = Math.round(31 * S);
   const NAME_SIZE = Math.round(16 * S);
@@ -135,11 +164,26 @@ async function generatePostUnico(text, branding = {}) {
   const PCX = PAD + PR;
   const nameX = PCX + PR + Math.round(12 * S);
 
-  // Measure text lines
+  // Measure text lines — then cap to what fits the fixed canvas height
   const tmp = createCanvas(W, 100);
   const tmpCtx = tmp.getContext('2d');
   tmpCtx.font = `${FONT_SIZE}px ${FONT}`;
-  const lines = wrapTextCanvas(tmpCtx, text.slice(0, 500), W - PAD * 2);
+  const allLines = wrapTextCanvas(tmpCtx, text, W - PAD * 2);
+
+  // static layout height (everything except text block)
+  const _headerH = PR * 2;
+  const _headerGap = Math.round(14 * S);
+  const _textGap = Math.round(24 * S);
+  const _sepToFooter = Math.round(20 * S);
+  const _staticH = _headerH + _headerGap + _textGap + 1 + _sepToFooter + FOOTER_SIZE;
+  const _availTextH = H - _staticH - PAD * 2;
+  const _maxLines = Math.max(1, Math.floor((_availTextH - FONT_SIZE) / LH) + 1);
+
+  const lines = allLines.length > _maxLines ? allLines.slice(0, _maxLines) : allLines;
+  if (allLines.length > _maxLines) {
+    const last = lines[_maxLines - 1];
+    lines[_maxLines - 1] = last.length > 3 ? last.slice(0, -3) + '…' : last + '…';
+  }
 
   // Layout
   const headerH = PR * 2;

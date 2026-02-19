@@ -7,6 +7,7 @@ const {
   handleConteudo,
   handleFormatCallback,
   handleImageCallback,
+  handleCaptionCallback,
   handleResearchCallback,
   handleAgendamentos,
   handlePausar,
@@ -101,6 +102,8 @@ function createBot(tenant) {
       handleResearchCallback(bot, query, tenant);
     } else if (query.data === 'image:generate') {
       handleImageCallback(bot, query, tenant);
+    } else if (query.data?.startsWith('caption:')) {
+      handleCaptionCallback(bot, query, tenant);
     }
   });
 

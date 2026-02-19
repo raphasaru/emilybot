@@ -113,13 +113,25 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
       )}
 
       {/* Main text editor */}
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={20}
-        placeholder="Conteúdo..."
-        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-sm leading-relaxed focus:outline-none focus:border-purple-500 resize-y"
-      />
+      <div className="relative">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={20}
+          placeholder="Conteúdo..."
+          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-sm leading-relaxed focus:outline-none focus:border-purple-500 resize-y"
+        />
+        {draft.format === 'post_unico' && (() => {
+          const remaining = 400 - text.length;
+          const isOver = remaining < 0;
+          const isClose = remaining <= 50 && !isOver;
+          return (
+            <span className={`absolute bottom-3 right-3 text-xs pointer-events-none ${isOver ? 'text-red-400' : isClose ? 'text-yellow-400' : 'text-gray-500'}`}>
+              {remaining}
+            </span>
+          );
+        })()}
+      </div>
 
       {/* Publishing notes */}
       {(notes || parsed) && (
