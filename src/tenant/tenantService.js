@@ -14,12 +14,24 @@ function encryptKeys(data) {
   };
 }
 
+// Handles both encrypted (iv:authTag:ciphertext) and legacy plain-text values
+function safeDecrypt(value) {
+  if (!value) return value;
+  const parts = value.split(':');
+  if (parts.length !== 3) return value; // not encrypted
+  try {
+    return decrypt(value, ENC_KEY);
+  } catch {
+    return value; // fallback — return as-is if decrypt fails
+  }
+}
+
 function decryptKeys(tenant) {
   return {
     ...tenant,
-    gemini_api_key: decrypt(tenant.gemini_api_key, ENC_KEY),
-    brave_search_key: decrypt(tenant.brave_search_key, ENC_KEY),
-    fal_key: decrypt(tenant.fal_key, ENC_KEY),
+    gemini_api_key: safeDecrypt(tenant.gemini_api_key),
+    brave_search_key: safeDecrypt(tenant.brave_search_key),
+    fal_key: safeDecrypt(tenant.fal_key),
   };
 }
 
