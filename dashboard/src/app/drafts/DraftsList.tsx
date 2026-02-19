@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '../lib/supabaseClient';
 
 interface Draft {
   id: string;
@@ -48,6 +49,22 @@ export default function DraftsList({ drafts: initial }: { drafts: Draft[] }) {
 
   const selCount = [...selected].filter((id) => filtered.find((d) => d.id === id)).length;
   const allSel = filtered.length > 0 && filtered.every((d) => selected.has(d.id));
+
+  useEffect(() => {
+    const channel = supabaseBrowser
+      .channel('content_drafts_changes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'content_drafts' },
+        (payload) => {
+          const row = payload.new as Draft;
+          setDrafts((prev) => [row, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => { supabaseBrowser.removeChannel(channel); };
+  }, []);
 
   useEffect(() => {
     if (editingId && inputRef.current) {
