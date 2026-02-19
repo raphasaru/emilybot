@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     .from('tenants')
     .select('id, dashboard_password_hash')
     .ilike('name', name.trim())
-    .eq('is_active', true)
+    .eq('active', true)
     .single();
 
   if (error || !tenant || !tenant.dashboard_password_hash) {
