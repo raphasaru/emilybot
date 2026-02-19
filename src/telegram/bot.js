@@ -1,5 +1,6 @@
+'use strict';
+
 const TelegramBot = require('node-telegram-bot-api');
-const { isAuthorized } = require('./middleware');
 const {
   handleStart,
   handleAgentes,
@@ -12,21 +13,23 @@ const {
   handleDisparar,
   handleAjuda,
   handleStatus,
+  handleBranding,
   handleFreeMessage,
   handleCriarAgente,
 } = require('./handlers');
 const { logger } = require('../utils/logger');
-require('dotenv').config();
 
-function createBot() {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) throw new Error('TELEGRAM_BOT_TOKEN not set');
+function createBot(tenant) {
+  const token = tenant?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error('Bot token not available');
 
   const bot = new TelegramBot(token, { polling: true });
 
+  // Guard: only allow messages from this tenant's chat
   function guard(chatId) {
-    if (!isAuthorized(chatId)) {
-      logger.warn('Unauthorized access attempt', { chatId });
+    const allowedChatId = tenant?.chat_id || process.env.TELEGRAM_ALLOWED_CHAT_ID;
+    if (!allowedChatId || String(chatId) !== String(allowedChatId)) {
+      logger.warn('Unauthorized access attempt', { chatId, tenantId: tenant?.id });
       bot.sendMessage(chatId, 'Acesso nao autorizado.');
       return false;
     }
@@ -35,58 +38,63 @@ function createBot() {
 
   bot.onText(/\/start/, (msg) => {
     if (!guard(msg.chat.id)) return;
-    handleStart(bot, msg);
+    handleStart(bot, msg, tenant);
   });
 
   bot.onText(/\/agentes/, (msg) => {
     if (!guard(msg.chat.id)) return;
-    handleAgentes(bot, msg);
+    handleAgentes(bot, msg, tenant);
   });
 
   bot.onText(/\/criar_agente/, (msg) => {
     if (!guard(msg.chat.id)) return;
-    handleCriarAgente(bot, msg);
+    handleCriarAgente(bot, msg, tenant);
   });
 
   bot.onText(/\/conteudo(?:\s+(.+))?/, (msg, match) => {
     if (!guard(msg.chat.id)) return;
-    handleConteudo(bot, msg, match?.[1]?.trim());
+    handleConteudo(bot, msg, match?.[1]?.trim(), tenant);
   });
 
   bot.onText(/\/agendamentos/, (msg) => {
     if (!guard(msg.chat.id)) return;
-    handleAgendamentos(bot, msg);
+    handleAgendamentos(bot, msg, tenant);
   });
 
   bot.onText(/\/pausar(?:\s+(.+))?/, (msg, match) => {
     if (!guard(msg.chat.id)) return;
-    handlePausar(bot, msg, match?.[1]?.trim());
+    handlePausar(bot, msg, match?.[1]?.trim(), tenant);
   });
 
   bot.onText(/\/disparar(?:\s+(.+))?/, (msg, match) => {
     if (!guard(msg.chat.id)) return;
-    handleDisparar(bot, msg, match?.[1]?.trim());
+    handleDisparar(bot, msg, match?.[1]?.trim(), tenant);
   });
 
   bot.onText(/\/ajuda/, (msg) => {
     if (!guard(msg.chat.id)) return;
-    handleAjuda(bot, msg);
+    handleAjuda(bot, msg, tenant);
   });
 
   bot.onText(/\/status/, (msg) => {
     if (!guard(msg.chat.id)) return;
-    handleStatus(bot, msg);
+    handleStatus(bot, msg, tenant);
+  });
+
+  bot.onText(/\/branding(?:\s+(.+))?/, (msg, match) => {
+    if (!guard(msg.chat.id)) return;
+    handleBranding(bot, msg, tenant, match?.[1]?.trim());
   });
 
   // Inline button callbacks
   bot.on('callback_query', (query) => {
     if (!guard(query.message.chat.id)) return;
     if (query.data?.startsWith('format:')) {
-      handleFormatCallback(bot, query);
+      handleFormatCallback(bot, query, tenant);
     } else if (query.data?.startsWith('research:')) {
-      handleResearchCallback(bot, query);
+      handleResearchCallback(bot, query, tenant);
     } else if (query.data === 'image:generate') {
-      handleImageCallback(bot, query);
+      handleImageCallback(bot, query, tenant);
     }
   });
 
@@ -94,14 +102,25 @@ function createBot() {
   bot.on('message', (msg) => {
     if (!guard(msg.chat.id)) return;
     if (!msg.text || msg.text.startsWith('/')) return;
-    handleFreeMessage(bot, msg);
+    handleFreeMessage(bot, msg, tenant);
   });
 
+  // Polling failure tracking for auto-deactivation
+  let pollingFailures = 0;
   bot.on('polling_error', (err) => {
-    logger.error('Telegram polling error', { error: err.message });
+    pollingFailures++;
+    logger.error('Telegram polling error', { error: err.message, tenantId: tenant?.id, failures: pollingFailures });
+    if (pollingFailures >= 4) {
+      logger.error('Too many polling failures — emitting deactivate', { tenantId: tenant?.id });
+      bot.emit('tenant_deactivate', tenant?.id);
+    }
   });
 
-  logger.info('Telegram bot started (polling mode)');
+  // Reset failure counter on successful activity
+  bot.on('message', () => { pollingFailures = 0; });
+  bot.on('callback_query', () => { pollingFailures = 0; });
+
+  logger.info('Bot started', { tenantId: tenant?.id, name: tenant?.name });
   return bot;
 }
 

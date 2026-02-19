@@ -1,3 +1,5 @@
+'use strict';
+
 const { runContentFlow, runContentFromResearch, runResearch, loadPipeline } = require('../flows/contentCreation');
 const { supabase } = require('../database/supabase');
 const { runAgent } = require('../agents/agentRunner');
@@ -5,18 +7,14 @@ const { logger } = require('../utils/logger');
 const cronManager = require('../scheduler/cronManager');
 const { createAgent, getNextPosition } = require('../agents/agentFactory');
 const { generatePostUnico, generateCarouselImages, parseCarouselCards } = require('../services/imageGenerator');
+const { checkRateLimit } = require('../utils/rateLimiter');
 
-// In-memory state for interactive flows
-let pendingCronFlow = null;
-let pendingAgentFlow = null;
-let pendingFormatFlow = null;
-let pendingImageFlow = null;
-let pendingResearchFlow = null;
-// { step: 'nome'|'funcao'|'instrucoes'|'pipeline', data: {} }
-// { schedule, researchText, remainingAgents, options: string[] }
-// { topic: string, chatId: number, researchData?: { researchText, remainingAgents } }
-// { format, final_content, draft_id, chatId }
-// { options: string[], researchText: string, remainingAgents: Agent[] }
+// Per-chatId state Maps (supports multiple concurrent tenants)
+const pendingCronFlows = new Map();     // chatId -> flow data
+const pendingAgentFlows = new Map();    // chatId -> flow data
+const pendingFormatFlows = new Map();   // chatId -> flow data
+const pendingImageFlows = new Map();    // chatId -> flow data
+const pendingResearchFlows = new Map(); // chatId -> flow data
 
 const FORMAT_BUTTONS = [
   [
@@ -32,7 +30,7 @@ const FORMAT_BUTTONS = [
   ],
 ];
 
-const EMILY_SYSTEM_PROMPT = `Voce e Emily, COO e orquestradora de uma equipe de agentes de IA que trabalha para Raphael, um gestor de trafego e criador de conteudo especializado em Meta Ads, Google Ads, IA e marketing digital.
+const BASE_EMILY_PROMPT = `Voce e Emily, COO e orquestradora de uma equipe de agentes de IA que trabalha para Raphael, um gestor de trafego e criador de conteudo especializado em Meta Ads, Google Ads, IA e marketing digital.
 
 Suas responsabilidades:
 1. Entender o que Raphael precisa e acionar os subagentes corretos
@@ -77,7 +75,23 @@ Exemplos que ativam isso: "usa esse contexto para criar um carrossel: ...", "cri
 
 Quando for uma conversa normal, responda normalmente como Emily, em portugues.`;
 
-async function generateAgentSystemPrompt(displayName, role, instructions) {
+function getEmilyPrompt(tenant) {
+  if (tenant?.emily_tone) {
+    return BASE_EMILY_PROMPT + `\n\nTOM DE VOZ PERSONALIZADO: ${tenant.emily_tone}`;
+  }
+  return BASE_EMILY_PROMPT;
+}
+
+function mkTenantKeys(tenant) {
+  return {
+    geminiApiKey: tenant?.gemini_api_key,
+    braveSearchKey: tenant?.brave_search_key,
+    falKey: tenant?.fal_key,
+    tenantId: tenant?.id,
+  };
+}
+
+async function generateAgentSystemPrompt(displayName, role, instructions, geminiApiKey) {
   const prompt = `Voce e um especialista em criacao de instrucoes para agentes de IA.
 
 Crie um system prompt profissional e completo para um agente com as seguintes caracteristicas:
@@ -93,44 +107,51 @@ O system prompt deve:
 
 Retorne APENAS o system prompt, sem explicacoes adicionais.`;
 
-  return runAgent(prompt, 'Gere o system prompt agora.', { model: 'sonnet', maxTokens: 1024 });
+  return runAgent(prompt, 'Gere o system prompt agora.', { model: 'sonnet', maxTokens: 1024, geminiApiKey });
 }
 
 async function startAgentOnboarding(bot, chatId) {
-  pendingAgentFlow = { step: 'nome', data: {} };
+  pendingAgentFlows.set(String(chatId), { step: 'nome', data: {} });
   await bot.sendMessage(chatId, 'Otimo! Vou criar um novo agente. Como ele se chama?');
 }
 
-async function handleAgentOnboardingStep(bot, msg) {
+async function handleAgentOnboardingStep(bot, msg, tenant) {
   const text = msg.text.trim();
   const chatId = msg.chat.id;
-  const { step, data } = pendingAgentFlow;
+  const chatIdStr = String(chatId);
+  const flowData = pendingAgentFlows.get(chatIdStr);
+  if (!flowData) return;
+
+  const { step, data } = flowData;
 
   if (step === 'nome') {
     data.display_name = text;
     data.name = text.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    pendingAgentFlow.step = 'funcao';
+    pendingAgentFlows.set(chatIdStr, { step: 'funcao', data });
     await bot.sendMessage(chatId, `Perfeito! Qual e a funcao principal do ${data.display_name}?\n\nDescreva o que ele deve fazer.`);
     return;
   }
 
   if (step === 'funcao') {
     data.role = text;
-    pendingAgentFlow.step = 'instrucoes';
+    pendingAgentFlows.set(chatIdStr, { step: 'instrucoes', data });
     await bot.sendMessage(chatId, 'Tem alguma instrucao especifica ou estilo que ele deve seguir?\n\n(Responda "nenhuma" para pular)');
     return;
   }
 
   if (step === 'instrucoes') {
     data.instructions = text.toLowerCase() === 'nenhuma' ? '' : text;
-    pendingAgentFlow.step = 'pipeline';
+    pendingAgentFlows.set(chatIdStr, { step: 'pipeline', data });
 
-    const { data: agents } = await supabase
+    let query = supabase
       .from('agents')
       .select('display_name, position_in_flow')
       .eq('is_active', true)
-      .not('position_in_flow', 'is', null)
-      .order('position_in_flow');
+      .not('position_in_flow', 'is', null);
+
+    if (tenant?.id) query = query.eq('tenant_id', tenant.id);
+
+    const { data: agents } = await query.order('position_in_flow');
 
     const pipelineList = agents?.length
       ? agents.map((a) => `  ${a.position_in_flow}. ${a.display_name}`).join('\n')
@@ -152,17 +173,17 @@ async function handleAgentOnboardingStep(bot, msg) {
       if (!isNaN(parseInt(text, 10))) {
         position_in_flow = parseInt(text, 10);
       } else {
-        position_in_flow = await getNextPosition();
+        position_in_flow = await getNextPosition(tenant?.id);
       }
     }
 
-    pendingAgentFlow = null;
+    pendingAgentFlows.delete(chatIdStr);
 
     await bot.sendMessage(chatId, `Gerando system prompt para o ${data.display_name}...`);
 
     try {
-      const system_prompt = await generateAgentSystemPrompt(data.display_name, data.role, data.instructions);
-      const agent = await createAgent({ ...data, system_prompt, position_in_flow });
+      const system_prompt = await generateAgentSystemPrompt(data.display_name, data.role, data.instructions, tenant?.gemini_api_key);
+      const agent = await createAgent({ ...data, system_prompt, position_in_flow, tenant_id: tenant?.id });
 
       const pipelineMsg = position_in_flow
         ? `\nPosicao no pipeline: ${position_in_flow}`
@@ -216,7 +237,7 @@ function parseResearchOptions(researchText) {
   return options.slice(0, 5);
 }
 
-async function handleStart(bot, msg) {
+async function handleStart(bot, msg, tenant) {
   await bot.sendMessage(
     msg.chat.id,
     'Ola! Sou Emily, sua COO virtual.\n\n' +
@@ -225,11 +246,14 @@ async function handleStart(bot, msg) {
   );
 }
 
-async function handleAgentes(bot, msg) {
-  const { data: agents } = await supabase
+async function handleAgentes(bot, msg, tenant) {
+  let query = supabase
     .from('agents')
-    .select('display_name, role, is_active, position_in_flow')
-    .order('position_in_flow');
+    .select('display_name, role, is_active, position_in_flow');
+
+  if (tenant?.id) query = query.eq('tenant_id', tenant.id);
+
+  const { data: agents } = await query.order('position_in_flow');
 
   if (!agents?.length) {
     return bot.sendMessage(msg.chat.id, 'Nenhum agente cadastrado.');
@@ -245,7 +269,7 @@ async function handleAgentes(bot, msg) {
 }
 
 async function askForFormat(bot, chatId, topic, directText = null, contextText = null) {
-  pendingFormatFlow = { topic, chatId, directText, contextText };
+  pendingFormatFlows.set(String(chatId), { topic, chatId, directText, contextText });
   const keyboard = contextText
     ? [...FORMAT_BUTTONS, [{ text: '📋 Usar texto como está', callback_data: 'format:contexto_direto' }]]
     : FORMAT_BUTTONS;
@@ -307,10 +331,10 @@ function extractCleanPreview(finalContent, format) {
   return finalContent;
 }
 
-async function runContentAndSend(bot, chatId, topic, format) {
+async function runContentAndSend(bot, chatId, topic, format, tenant) {
   await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
   try {
-    const result = await runContentFlow(topic, format);
+    const result = await runContentFlow(topic, format, mkTenantKeys(tenant));
     await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
     const preview = extractCleanPreview(result.final_content || '', format);
@@ -323,7 +347,7 @@ async function runContentAndSend(bot, chatId, topic, format) {
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
     if (['post_unico', 'carrossel'].includes(format)) {
-      pendingImageFlow = { format, final_content: result.final_content, draft_id: result.draft_id, chatId };
+      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId });
       await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
         reply_markup: {
           inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
@@ -336,10 +360,10 @@ async function runContentAndSend(bot, chatId, topic, format) {
   }
 }
 
-async function runResearchContentAndSend(bot, chatId, topic, format, researchText, remainingAgents) {
+async function runResearchContentAndSend(bot, chatId, topic, format, researchText, remainingAgents, tenant) {
   await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
   try {
-    const result = await runContentFromResearch(researchText, topic, format, remainingAgents);
+    const result = await runContentFromResearch(researchText, topic, format, remainingAgents, mkTenantKeys(tenant));
     await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
     const preview = extractCleanPreview(result.final_content || '', format);
@@ -352,7 +376,7 @@ async function runResearchContentAndSend(bot, chatId, topic, format, researchTex
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
     if (['post_unico', 'carrossel'].includes(format)) {
-      pendingImageFlow = { format, final_content: result.final_content, draft_id: result.draft_id, chatId };
+      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId });
       await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
         reply_markup: {
           inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
@@ -365,9 +389,10 @@ async function runResearchContentAndSend(bot, chatId, topic, format, researchTex
   }
 }
 
-async function handleImageCallback(bot, query) {
+async function handleImageCallback(bot, query, tenant) {
   if (query.data !== 'image:generate') return;
   const chatId = query.message.chat.id;
+  const chatIdStr = String(chatId);
   await bot.answerCallbackQuery(query.id);
 
   await bot.editMessageReplyMarkup(
@@ -375,12 +400,12 @@ async function handleImageCallback(bot, query) {
     { chat_id: chatId, message_id: query.message.message_id }
   );
 
-  if (!pendingImageFlow || pendingImageFlow.chatId !== chatId) {
+  if (!pendingImageFlows.has(chatIdStr)) {
     return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente para gerar imagem.');
   }
 
-  const { format, final_content, draft_id } = pendingImageFlow;
-  pendingImageFlow = null;
+  const { format, final_content, draft_id } = pendingImageFlows.get(chatIdStr);
+  pendingImageFlows.delete(chatIdStr);
 
   if (format === 'post_unico') {
     await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
@@ -440,10 +465,10 @@ async function handleImageCallback(bot, query) {
   }
 }
 
-async function handlePesquisarAction(bot, chatId) {
+async function handlePesquisarAction(bot, chatId, tenant) {
   await bot.sendMessage(chatId, '🔍 Pesquisando tendencias para sugerir temas...');
   try {
-    const { researchText, remainingAgents } = await runResearch('marketing digital, IA, Meta Ads, Google Ads');
+    const { researchText, remainingAgents } = await runResearch('marketing digital, IA, Meta Ads, Google Ads', mkTenantKeys(tenant));
     const options = parseResearchOptions(researchText);
 
     if (!options.length) {
@@ -451,7 +476,7 @@ async function handlePesquisarAction(bot, chatId) {
       return;
     }
 
-    pendingResearchFlow = { options, researchText, remainingAgents };
+    pendingResearchFlows.set(String(chatId), { options, researchText, remainingAgents });
 
     const buttons = options.map((opt, i) => [{
       text: opt.length > 50 ? opt.slice(0, 47) + '...' : opt,
@@ -468,19 +493,20 @@ async function handlePesquisarAction(bot, chatId) {
   }
 }
 
-async function handleResearchCallback(bot, query) {
+async function handleResearchCallback(bot, query, tenant) {
   const chatId = query.message.chat.id;
+  const chatIdStr = String(chatId);
   const idx = parseInt(query.data.replace('research:', ''), 10);
 
   await bot.answerCallbackQuery(query.id);
 
-  if (!pendingResearchFlow || pendingResearchFlow.chatId === undefined && pendingResearchFlow.options === undefined) {
+  if (!pendingResearchFlows.has(chatIdStr)) {
     return bot.sendMessage(chatId, '❌ Nenhuma pesquisa pendente.');
   }
 
-  const { options, researchText, remainingAgents } = pendingResearchFlow;
+  const { options, researchText, remainingAgents } = pendingResearchFlows.get(chatIdStr);
   const topic = options[idx];
-  pendingResearchFlow = null;
+  pendingResearchFlows.delete(chatIdStr);
 
   if (!topic) {
     return bot.sendMessage(chatId, '❌ Opcao invalida.');
@@ -491,14 +517,14 @@ async function handleResearchCallback(bot, query) {
     { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'Markdown' }
   );
 
-  pendingFormatFlow = { topic, chatId, researchData: { researchText, remainingAgents } };
+  pendingFormatFlows.set(chatIdStr, { topic, chatId, researchData: { researchText, remainingAgents } });
   await bot.sendMessage(chatId, `🎨 Qual formato para *"${topic}"*?`, {
     parse_mode: 'Markdown',
     reply_markup: { inline_keyboard: FORMAT_BUTTONS },
   });
 }
 
-async function handleConteudo(bot, msg, topic) {
+async function handleConteudo(bot, msg, topic, tenant) {
   if (!topic) {
     return bot.sendMessage(
       msg.chat.id,
@@ -508,8 +534,9 @@ async function handleConteudo(bot, msg, topic) {
   await askForFormat(bot, msg.chat.id, topic);
 }
 
-async function handleFormatCallback(bot, query) {
+async function handleFormatCallback(bot, query, tenant) {
   const chatId = query.message.chat.id;
+  const chatIdStr = String(chatId);
   const data = query.data;
 
   if (!data.startsWith('format:')) return;
@@ -517,12 +544,12 @@ async function handleFormatCallback(bot, query) {
 
   await bot.answerCallbackQuery(query.id);
 
-  if (!pendingFormatFlow || pendingFormatFlow.chatId !== chatId) {
+  if (!pendingFormatFlows.has(chatIdStr)) {
     return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente. Use /conteudo <tema>.');
   }
 
-  const { topic, researchData, directText, contextText } = pendingFormatFlow;
-  pendingFormatFlow = null;
+  const { topic, researchData, directText, contextText } = pendingFormatFlows.get(chatIdStr);
+  pendingFormatFlows.delete(chatIdStr);
 
   const formatLabels = {
     post_unico: 'Post único',
@@ -561,14 +588,14 @@ async function handleFormatCallback(bot, query) {
       try {
         const { data: draft } = await supabase
           .from('content_drafts')
-          .insert({ topic: topic || 'contexto direto', format: 'post_unico', draft: null, final_content: contextText, status: 'completed' })
+          .insert({ topic: topic || 'contexto direto', format: 'post_unico', draft: null, final_content: contextText, status: 'completed', tenant_id: tenant?.id })
           .select().single();
         await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${draft?.id || 'N/A'})`);
         const chunks = contextText.match(/.{1,4000}/gs) || [contextText];
         for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
         const editLink = buildEditLink(draft?.id);
         if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
-        pendingImageFlow = { format: 'post_unico', final_content: contextText, draft_id: draft?.id, chatId };
+        pendingImageFlows.set(chatIdStr, { format: 'post_unico', final_content: contextText, draft_id: draft?.id, chatId });
         await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
           reply_markup: { inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]] },
         });
@@ -579,15 +606,20 @@ async function handleFormatCallback(bot, query) {
       return;
     }
 
+    // Rate limit check before running pipeline
+    if (tenant?.id && !checkRateLimit(tenant.id)) {
+      return bot.sendMessage(chatId, '⚠️ Limite de 6 conteudos por hora atingido. Tente novamente mais tarde.');
+    }
+
     // Normal context mode: run redator+formatador with fidelity instruction
     const contextWithInstructions =
       `INSTRUCAO: mantenha maxima fidelidade ao conteudo, ideias e estrutura do texto abaixo. ` +
       `Adapte APENAS o que for estritamente necessario para o formato "${format}".\n\n` +
       `TEXTO DO USUARIO:\n${contextText}`;
     try {
-      const pipeline = await loadPipeline();
+      const pipeline = await loadPipeline(mkTenantKeys(tenant));
       const remainingAgents = pipeline.slice(1); // skip pesquisador (position 1)
-      await runResearchContentAndSend(bot, chatId, topic, format, contextWithInstructions, remainingAgents);
+      await runResearchContentAndSend(bot, chatId, topic, format, contextWithInstructions, remainingAgents, tenant);
     } catch (err) {
       logger.error('Context content flow failed', { error: err.message });
       await bot.sendMessage(chatId, `❌ Erro ao processar contexto: ${err.message}`);
@@ -595,16 +627,21 @@ async function handleFormatCallback(bot, query) {
     return;
   }
 
+  // Rate limit check before running pipeline
+  if (tenant?.id && !checkRateLimit(tenant.id)) {
+    return bot.sendMessage(chatId, '⚠️ Limite de 6 conteudos por hora atingido. Tente novamente mais tarde.');
+  }
+
   if (researchData) {
-    await runResearchContentAndSend(bot, chatId, topic, format, researchData.researchText, researchData.remainingAgents);
+    await runResearchContentAndSend(bot, chatId, topic, format, researchData.researchText, researchData.remainingAgents, tenant);
   } else {
-    await runContentAndSend(bot, chatId, topic, format);
+    await runContentAndSend(bot, chatId, topic, format, tenant);
   }
 }
 
-async function handleAgendamentos(bot, msg) {
+async function handleAgendamentos(bot, msg, tenant) {
   try {
-    const schedules = await cronManager.list();
+    const schedules = await cronManager.list(tenant?.id);
 
     if (!schedules.length) {
       return bot.sendMessage(msg.chat.id, 'Nenhum agendamento cadastrado.');
@@ -628,7 +665,7 @@ async function handleAgendamentos(bot, msg) {
   }
 }
 
-async function handlePausar(bot, msg, scheduleId) {
+async function handlePausar(bot, msg, scheduleId, tenant) {
   if (!scheduleId) {
     return bot.sendMessage(
       msg.chat.id,
@@ -645,16 +682,15 @@ async function handlePausar(bot, msg, scheduleId) {
   }
 }
 
-async function handleDisparar(bot, msg, scheduleId) {
+async function handleDisparar(bot, msg, scheduleId, tenant) {
   if (!scheduleId) {
     return bot.sendMessage(msg.chat.id, 'Use: /disparar <id>\nVeja os IDs com /agendamentos');
   }
 
-  const { data: schedule, error } = await supabase
-    .from('schedules')
-    .select('*')
-    .eq('id', scheduleId)
-    .single();
+  let query = supabase.from('schedules').select('*').eq('id', scheduleId);
+  if (tenant?.id) query = query.eq('tenant_id', tenant.id);
+
+  const { data: schedule, error } = await query.single();
 
   if (error || !schedule) {
     return bot.sendMessage(msg.chat.id, `❌ Agendamento nao encontrado: ${scheduleId}`);
@@ -663,9 +699,8 @@ async function handleDisparar(bot, msg, scheduleId) {
   await bot.sendMessage(msg.chat.id, `🔄 Disparando "${schedule.name}"...`);
 
   try {
-    const { runResearch } = require('../flows/contentCreation');
     const topics = (schedule.topics || []).join(', ') || 'IA e marketing digital';
-    const { researchText, remainingAgents } = await runResearch(topics);
+    const { researchText, remainingAgents } = await runResearch(topics, mkTenantKeys(tenant));
     await onCronResearchReady(bot, String(msg.chat.id), schedule, researchText, remainingAgents);
   } catch (err) {
     logger.error('Manual trigger failed', { error: err.message });
@@ -673,7 +708,7 @@ async function handleDisparar(bot, msg, scheduleId) {
   }
 }
 
-async function handleAjuda(bot, msg) {
+async function handleAjuda(bot, msg, tenant) {
   await bot.sendMessage(
     msg.chat.id,
     'Comandos disponiveis:\n\n' +
@@ -684,18 +719,25 @@ async function handleAjuda(bot, msg) {
     '/agendamentos — Lista cron jobs\n' +
     '/pausar \\<id\\> — Pausa um agendamento\n' +
     '/status — Status do sistema\n' +
+    '/branding — Ver ou alterar visual\n' +
     '/ajuda — Este menu',
     { parse_mode: 'MarkdownV2' }
   );
 }
 
-async function handleStatus(bot, msg) {
+async function handleStatus(bot, msg, tenant) {
+  let agentQuery = supabase.from('agents').select('*', { count: 'exact', head: true }).eq('is_active', true);
+  let draftQuery = supabase.from('content_drafts').select('*', { count: 'exact', head: true });
+  let scheduleQuery = supabase.from('schedules').select('*', { count: 'exact', head: true }).eq('is_active', true);
+
+  if (tenant?.id) {
+    agentQuery = agentQuery.eq('tenant_id', tenant.id);
+    draftQuery = draftQuery.eq('tenant_id', tenant.id);
+    scheduleQuery = scheduleQuery.eq('tenant_id', tenant.id);
+  }
+
   const [{ count: agentCount }, { count: draftCount }, { count: scheduleCount }] =
-    await Promise.all([
-      supabase.from('agents').select('*', { count: 'exact', head: true }).eq('is_active', true),
-      supabase.from('content_drafts').select('*', { count: 'exact', head: true }),
-      supabase.from('schedules').select('*', { count: 'exact', head: true }).eq('is_active', true),
-    ]);
+    await Promise.all([agentQuery, draftQuery, scheduleQuery]);
 
   await bot.sendMessage(
     msg.chat.id,
@@ -708,11 +750,68 @@ async function handleStatus(bot, msg) {
   );
 }
 
+async function handleBranding(bot, msg, tenant, args) {
+  const chatId = msg.chat.id;
+
+  if (!tenant) {
+    return bot.sendMessage(chatId, '❌ Tenant nao identificado.');
+  }
+
+  if (!args) {
+    const b = tenant.branding || {};
+    const lines = [
+      `🎨 *Branding atual:*`,
+      `Preset: ${b.template_preset || 'modern'}`,
+      `Cor primaria: ${b.primary_color || '#FF5722'}`,
+      `Cor secundaria: ${b.secondary_color || '#1A1A2E'}`,
+      `Cor texto: ${b.text_color || '#FFFFFF'}`,
+      `Fonte: ${b.font || 'Montserrat'}`,
+      `Logo: ${b.logo_url || 'nenhum'}`,
+      '',
+      'Para alterar: /branding <campo> <valor>',
+      'Campos: cor, cor2, texto\\_cor, fonte, logo, preset',
+    ];
+    return bot.sendMessage(chatId, lines.join('\n'), { parse_mode: 'Markdown' });
+  }
+
+  const [field, ...rest] = args.split(' ');
+  const value = rest.join(' ').trim();
+  if (!value) return bot.sendMessage(chatId, 'Use: /branding <campo> <valor>');
+
+  const branding = { ...(tenant.branding || {}) };
+  const fieldMap = {
+    cor: 'primary_color',
+    cor2: 'secondary_color',
+    texto_cor: 'text_color',
+    fonte: 'font',
+    logo: 'logo_url',
+    preset: 'template_preset',
+  };
+
+  const key = fieldMap[field];
+  if (!key) return bot.sendMessage(chatId, `Campo invalido: ${field}\nValidos: cor, cor2, texto_cor, fonte, logo, preset`);
+
+  if (key === 'template_preset' && !['modern', 'clean', 'bold'].includes(value)) {
+    return bot.sendMessage(chatId, 'Presets disponiveis: modern, clean, bold');
+  }
+
+  branding[key] = value;
+
+  const tenantService = require('../tenant/tenantService');
+  await tenantService.updateTenant(tenant.id, { branding });
+  tenant.branding = branding;
+
+  const { setTenantCache } = require('./middleware');
+  setTenantCache(tenant.chat_id, tenant);
+
+  await bot.sendMessage(chatId, `✅ ${field} atualizado para: ${value}`);
+}
+
 // Called by cronManager when research is ready — presents options to user
 async function onCronResearchReady(bot, chatId, schedule, researchText, remainingAgents) {
   const options = parseResearchOptions(researchText);
 
-  pendingCronFlow = { schedule, researchText, remainingAgents, options };
+  pendingCronFlows.set(String(chatId), { schedule, researchText, remainingAgents, options });
 
   if (!options.length) {
     await bot.sendMessage(
@@ -731,17 +830,19 @@ async function onCronResearchReady(bot, chatId, schedule, researchText, remainin
   );
 }
 
-async function handleFreeMessage(bot, msg) {
+async function handleFreeMessage(bot, msg, tenant) {
+  const chatIdStr = String(msg.chat.id);
+
   // Intercept if in agent onboarding flow
-  if (pendingAgentFlow) {
-    return await handleAgentOnboardingStep(bot, msg);
+  if (pendingAgentFlows.has(chatIdStr)) {
+    return await handleAgentOnboardingStep(bot, msg, tenant);
   }
 
   // Intercept if waiting for pauta choice from a cron flow
-  if (pendingCronFlow) {
+  if (pendingCronFlows.has(chatIdStr)) {
     const text = msg.text.trim();
     const choiceNum = parseInt(text, 10);
-    const { schedule, researchText, remainingAgents, options } = pendingCronFlow;
+    const { schedule, researchText, remainingAgents, options } = pendingCronFlows.get(chatIdStr);
 
     let chosenIdea;
     if (!isNaN(choiceNum) && choiceNum >= 1 && choiceNum <= options.length) {
@@ -757,11 +858,17 @@ async function handleFreeMessage(bot, msg) {
       if (!chosenIdea) return;
     }
 
-    pendingCronFlow = null;
+    pendingCronFlows.delete(chatIdStr);
+
+    // Rate limit check
+    if (tenant?.id && !checkRateLimit(tenant.id)) {
+      return bot.sendMessage(msg.chat.id, '⚠️ Limite de 6 conteudos por hora atingido. Tente novamente mais tarde.');
+    }
+
     await bot.sendMessage(msg.chat.id, `✅ Pauta selecionada! Escrevendo conteudo...`);
 
     try {
-      const result = await runContentFromResearch(researchText, chosenIdea, schedule.format, remainingAgents);
+      const result = await runContentFromResearch(researchText, chosenIdea, schedule.format, remainingAgents, mkTenantKeys(tenant));
       await bot.sendMessage(msg.chat.id, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
       const preview = extractCleanPreview(result.final_content || '', schedule.format);
@@ -774,7 +881,7 @@ async function handleFreeMessage(bot, msg) {
       if (editLink) await bot.sendMessage(msg.chat.id, `✏️ Editar: ${editLink}`);
 
       if (['post_unico', 'carrossel'].includes(schedule.format)) {
-        pendingImageFlow = { format: schedule.format, final_content: result.final_content, draft_id: result.draft_id, chatId: msg.chat.id };
+        pendingImageFlows.set(chatIdStr, { format: schedule.format, final_content: result.final_content, draft_id: result.draft_id, chatId: msg.chat.id });
         await bot.sendMessage(msg.chat.id, '🎨 Quer gerar as imagens?', {
           reply_markup: { inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]] },
         });
@@ -791,14 +898,14 @@ async function handleFreeMessage(bot, msg) {
     await bot.sendChatAction(msg.chat.id, 'typing');
 
     const response = await runAgent(
-      EMILY_SYSTEM_PROMPT,
+      getEmilyPrompt(tenant),
       msg.text,
-      { model: 'haiku', maxTokens: 2048 }
+      { model: 'haiku', maxTokens: 2048, geminiApiKey: tenant?.gemini_api_key }
     );
 
     // Detect research intent (no topic specified)
     if (response.includes('[ACAO:PESQUISAR]')) {
-      return await handlePesquisarAction(bot, msg.chat.id);
+      return await handlePesquisarAction(bot, msg.chat.id, tenant);
     }
 
     // Detect content creation intent
@@ -831,6 +938,7 @@ async function handleFreeMessage(bot, msg) {
           cron_expression: cronExpr.trim(),
           topics,
           format: format.trim(),
+          tenant_id: tenant?.id,
         });
 
         await bot.sendMessage(
@@ -873,8 +981,8 @@ async function handleFreeMessage(bot, msg) {
     await bot.sendMessage(msg.chat.id, response);
 
     supabase.from('conversations').insert([
-      { chat_id: String(msg.chat.id), role: 'user', content: msg.text },
-      { chat_id: String(msg.chat.id), role: 'assistant', content: response, agent_name: 'emily' },
+      { chat_id: chatIdStr, role: 'user', content: msg.text, tenant_id: tenant?.id },
+      { chat_id: chatIdStr, role: 'assistant', content: response, agent_name: 'emily', tenant_id: tenant?.id },
     ]).then(({ error }) => {
       if (error) logger.error('Failed to save conversation', { error: error.message });
     });
@@ -884,7 +992,7 @@ async function handleFreeMessage(bot, msg) {
   }
 }
 
-async function handleCriarAgente(bot, msg) {
+async function handleCriarAgente(bot, msg, tenant) {
   await startAgentOnboarding(bot, msg.chat.id);
 }
 
@@ -899,13 +1007,14 @@ module.exports = {
   handlePausar,
   handleAjuda,
   handleStatus,
+  handleBranding,
   handleDisparar,
   handleFreeMessage,
   onCronResearchReady,
   handleCriarAgente,
-  _setPendingCronFlow: (v) => { pendingCronFlow = v; },
-  _setPendingAgentFlow: (v) => { pendingAgentFlow = v; },
-  _setPendingFormatFlow: (v) => { pendingFormatFlow = v; },
-  _setPendingImageFlow: (v) => { pendingImageFlow = v; },
-  _setPendingResearchFlow: (v) => { pendingResearchFlow = v; },
+  _setPendingCronFlow: (chatId, v) => v ? pendingCronFlows.set(String(chatId), v) : pendingCronFlows.delete(String(chatId)),
+  _setPendingAgentFlow: (chatId, v) => v ? pendingAgentFlows.set(String(chatId), v) : pendingAgentFlows.delete(String(chatId)),
+  _setPendingFormatFlow: (chatId, v) => v ? pendingFormatFlows.set(String(chatId), v) : pendingFormatFlows.delete(String(chatId)),
+  _setPendingImageFlow: (chatId, v) => v ? pendingImageFlows.set(String(chatId), v) : pendingImageFlows.delete(String(chatId)),
+  _setPendingResearchFlow: (chatId, v) => v ? pendingResearchFlows.set(String(chatId), v) : pendingResearchFlows.delete(String(chatId)),
 };

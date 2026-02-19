@@ -1,26 +1,38 @@
+'use strict';
+
 const cron = require('node-cron');
 const { supabase } = require('../database/supabase');
 const { runResearch } = require('../flows/contentCreation');
 const { logger } = require('../utils/logger');
 
-const _activeCrons = new Map(); // scheduleId -> cron task instance
+const _activeCrons = new Map(); // scheduleId -> { cronTask, tenantId }
 let _onReady = null;
 
 function _setOnReady(fn) {
   _onReady = fn;
 }
 
-function _registerCron(bot, chatId, schedule) {
+function _registerCron(bot, chatId, schedule, onReady, tenant) {
+  const handler = onReady || _onReady;
+  const tenantKeys = tenant
+    ? {
+        geminiApiKey: tenant.gemini_api_key,
+        braveSearchKey: tenant.brave_search_key,
+        falKey: tenant.fal_key,
+        tenantId: tenant.id,
+      }
+    : undefined;
+
   const task = cron.schedule(
     schedule.cron_expression,
     async () => {
       logger.info('Cron fired', { name: schedule.name });
       try {
         const topics = (schedule.topics || []).join(', ') || 'IA e marketing digital';
-        const { researchText, remainingAgents } = await runResearch(topics);
+        const { researchText, remainingAgents } = await runResearch(topics, tenantKeys);
 
-        if (_onReady) {
-          await _onReady(bot, chatId, schedule, researchText, remainingAgents);
+        if (handler) {
+          await handler(bot, chatId, schedule, researchText, remainingAgents);
         }
 
         await supabase
@@ -34,10 +46,11 @@ function _registerCron(bot, chatId, schedule) {
     { timezone: schedule.timezone || 'America/Sao_Paulo' }
   );
 
-  _activeCrons.set(schedule.id, task);
+  _activeCrons.set(schedule.id, { cronTask: task, tenantId: tenant?.id || null });
   logger.info('Cron registered', { name: schedule.name, expression: schedule.cron_expression });
 }
 
+// Legacy single-tenant init (backwards compat)
 async function init(bot, chatId, onReady) {
   _onReady = onReady;
 
@@ -52,16 +65,47 @@ async function init(bot, chatId, onReady) {
   }
 
   for (const schedule of schedules || []) {
-    _registerCron(bot, chatId, schedule);
+    _registerCron(bot, chatId, schedule, onReady, null);
   }
 
   logger.info('CronManager initialized', { count: (schedules || []).length });
 }
 
+// Per-tenant init — loads and registers crons for one tenant
+async function initForTenant(bot, tenant, onReady) {
+  const { data: schedules, error } = await supabase
+    .from('schedules')
+    .select('*')
+    .eq('is_active', true)
+    .eq('tenant_id', tenant.id);
+
+  if (error) {
+    logger.error('Failed to load schedules for tenant', { tenantId: tenant.id, error: error.message });
+    return;
+  }
+
+  for (const schedule of schedules || []) {
+    _registerCron(bot, tenant.chat_id, schedule, onReady, tenant);
+  }
+
+  logger.info('Crons initialized for tenant', { tenantId: tenant.id, count: (schedules || []).length });
+}
+
+// Stop all crons for a tenant
+function stopForTenant(tenantId) {
+  for (const [id, entry] of _activeCrons.entries()) {
+    if (entry.tenantId === tenantId) {
+      entry.cronTask.stop();
+      _activeCrons.delete(id);
+    }
+  }
+  logger.info('Crons stopped for tenant', { tenantId });
+}
+
 async function pause(id) {
-  const task = _activeCrons.get(id);
-  if (task) {
-    task.stop();
+  const entry = _activeCrons.get(id);
+  if (entry) {
+    entry.cronTask.stop();
     _activeCrons.delete(id);
   }
 
@@ -70,15 +114,18 @@ async function pause(id) {
 }
 
 async function createSchedule(bot, chatId, scheduleData) {
+  const payload = {
+    name: scheduleData.name,
+    cron_expression: scheduleData.cron_expression,
+    timezone: scheduleData.timezone || 'America/Sao_Paulo',
+    topics: scheduleData.topics || [],
+    format: scheduleData.format || 'post_unico',
+  };
+  if (scheduleData.tenant_id) payload.tenant_id = scheduleData.tenant_id;
+
   const { data, error } = await supabase
     .from('schedules')
-    .insert({
-      name: scheduleData.name,
-      cron_expression: scheduleData.cron_expression,
-      timezone: scheduleData.timezone || 'America/Sao_Paulo',
-      topics: scheduleData.topics || [],
-      format: scheduleData.format || 'post_unico',
-    })
+    .insert(payload)
     .select()
     .single();
 
@@ -88,18 +135,18 @@ async function createSchedule(bot, chatId, scheduleData) {
     throw new Error(`Invalid cron expression: ${data.cron_expression}`);
   }
 
-  _registerCron(bot, chatId, data);
+  _registerCron(bot, chatId, data, _onReady, null);
   return data;
 }
 
-async function list() {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select('*')
-    .order('created_at');
+async function list(tenantId) {
+  let query = supabase.from('schedules').select('*');
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  query = query.order('created_at');
 
+  const { data, error } = await query;
   if (error) throw new Error(`Failed to list schedules: ${error.message}`);
   return data || [];
 }
 
-module.exports = { init, pause, createSchedule, list, _activeCrons, _setOnReady };
+module.exports = { init, initForTenant, stopForTenant, pause, createSchedule, list, _activeCrons, _setOnReady };

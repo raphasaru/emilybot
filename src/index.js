@@ -1,32 +1,28 @@
 require('dotenv').config();
 const express = require('express');
-const { createBot } = require('./telegram/bot');
 const { logger } = require('./utils/logger');
+const botManager = require('./tenant/botManager');
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection', { error: reason?.message || String(reason) });
 });
-const cronManager = require('./scheduler/cronManager');
-const { onCronResearchReady } = require('./telegram/handlers');
 
 const app = express();
 app.use(express.json());
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  const instances = botManager.getInstances();
+  res.json({
+    status: 'ok',
+    activeBots: instances.size,
+    timestamp: new Date().toISOString(),
+  });
 });
 
-const bot = createBot();
-
-// Init cron jobs — load from DB and register
-const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
-if (chatId) {
-  cronManager.init(bot, chatId, onCronResearchReady).catch((err) => {
-    logger.error('CronManager init failed', { error: err.message });
-  });
-} else {
-  logger.warn('TELEGRAM_ALLOWED_CHAT_ID not set — cron notifications disabled');
-}
+// Boot all tenant bots
+botManager.startAll().catch((err) => {
+  logger.error('BotManager startAll failed', { error: err.message });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
