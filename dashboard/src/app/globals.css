@@ -1,3 +1,74 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── DraftsList table ─────────────────────────────────────── */
+.dt { font-family: 'Syne', sans-serif; }
+.dt-mono { font-family: 'JetBrains Mono', monospace; }
+
+.dt-search {
+  background: #0F0F13; border: 1px solid #1C1C22; border-radius: 7px;
+  color: #E4E4EF; padding: 9px 14px; font-size: 14.5px; font-family: 'Syne', sans-serif;
+  outline: none; width: 100%; transition: border-color 150ms;
+}
+.dt-search:focus { border-color: #2D2D3A; }
+.dt-search::placeholder { color: #3A3A45; }
+
+.dt-chk {
+  appearance: none; -webkit-appearance: none;
+  width: 18px; height: 18px; border: 1.5px solid #2A2A35; border-radius: 50%;
+  background: transparent; cursor: pointer; flex-shrink: 0;
+  transition: background 100ms, border-color 100ms; position: relative;
+}
+.dt-chk:checked { background: #F59E0B; border-color: #F59E0B; }
+.dt-chk:checked::after {
+  content: ''; position: absolute; left: 5px; top: 2px;
+  width: 5px; height: 8px;
+  border: 2px solid #09090B; border-top: none; border-left: none;
+  transform: rotate(45deg);
+}
+
+.dt-row {
+  position: relative; cursor: pointer;
+  transition: background 80ms;
+  border-bottom: 1px solid #13131A;
+}
+.dt-row:last-child { border-bottom: none; }
+.dt-row:hover { background: #0F0F16; }
+.dt-row:hover .dt-actions { opacity: 1; pointer-events: auto; }
+.dt-row-selected { background: #0F0F1E !important; }
+
+.dt-actions {
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms;
+  display: flex; align-items: center; gap: 2px;
+  justify-content: flex-end;
+}
+.dt-actions-visible { opacity: 1; pointer-events: auto; }
+
+.dt-icon-btn {
+  background: none; border: none; padding: 5px; cursor: pointer;
+  border-radius: 5px; transition: background 80ms; display: flex; align-items: center;
+  color: #52525B;
+}
+.dt-icon-btn:hover { background: #1C1C26; color: #A1A1AA; }
+
+.dt-confirm-btn {
+  background: none; border: none; font-size: 13px; cursor: pointer;
+  padding: 3px 7px; border-radius: 4px; font-family: 'Syne', sans-serif;
+  font-weight: 500; transition: background 80ms; white-space: nowrap;
+}
+
+.dt-topic-input {
+  background: #09090B; border: 1px solid #F59E0B; border-radius: 5px;
+  color: #FAFAFA; padding: 3px 8px; font-size: 14.5px;
+  font-family: 'Syne', sans-serif; outline: none;
+  width: 100%; min-width: 0;
+}
+
+.dt-bulk { animation: dt-fadein 150ms ease; }
+
+@keyframes dt-fadein {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

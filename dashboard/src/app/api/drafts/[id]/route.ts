@@ -2,15 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../../lib/supabase';
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { final_content } = await req.json();
+  const body = await req.json();
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (body.final_content !== undefined) updates.final_content = body.final_content;
+  if (body.topic !== undefined) updates.topic = body.topic;
+
   const supabase = getSupabase();
   const { error } = await supabase
     .from('content_drafts')
-    .update({ final_content, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq('id', params.id);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('content_drafts')
+    .delete()
+    .eq('id', params.id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -12,7 +12,7 @@ export default async function DraftPage({ params }: Props) {
   const supabase = getSupabase();
   const { data: draft, error } = await supabase
     .from('content_drafts')
-    .select('*')
+    .select('id, topic, format, draft, final_content, image_urls')
     .eq('id', params.id)
     .single();
 

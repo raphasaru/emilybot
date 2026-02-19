@@ -66,14 +66,25 @@ export interface EditableContent {
 export function parseForEdit(rawContent: string | null | undefined): EditableContent {
   if (!rawContent) return { text: '', notes: '', parsed: null };
 
-  let parsed: FormattedDraft;
+  // Strip markdown code fences (```json ... ```)
+  const stripped = rawContent.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim();
+
+  let parsedRaw: unknown;
   try {
-    parsed = JSON.parse(rawContent);
+    parsedRaw = JSON.parse(stripped);
   } catch {
     // Not JSON — show as plain text
     return { text: rawContent, notes: '', parsed: null };
   }
 
+  // Handle direct array (formatador returned array without wrapper)
+  if (Array.isArray(parsedRaw)) {
+    const syntheticParsed: FormattedDraft = { format: 'carrossel', content: parsedRaw };
+    const text = (parsedRaw as Record<string, unknown>[]).map(cardToText).join('\n\n');
+    return { text, notes: '', parsed: syntheticParsed };
+  }
+
+  const parsed = parsedRaw as FormattedDraft;
   const { content, publishing_notes = '' } = parsed;
   let text: string;
 
