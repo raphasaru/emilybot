@@ -71,7 +71,7 @@ async function runResearch(topics, tenantKeys) {
     : '';
 
   const input = `Tema: ${topics}${searchContext}`;
-  const researchText = await runAgent(researcher.system_prompt, input, tenantKeys?.geminiApiKey);
+  const researchText = await runAgent(researcher.system_prompt, input, { geminiApiKey: tenantKeys?.geminiApiKey });
 
   return { researchText, remainingAgents };
 }
@@ -85,7 +85,7 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
 
   for (const agent of remainingAgents) {
     logger.info(`Running agent: ${agent.display_name}`);
-    const output = await runAgent(agent.system_prompt, currentInput, tenantKeys?.geminiApiKey);
+    const output = await runAgent(agent.system_prompt, currentInput, { geminiApiKey: tenantKeys?.geminiApiKey });
     results[agent.name] = output;
     currentInput = `${output}\n\nFormato desejado: ${format}`;
   }

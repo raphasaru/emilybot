@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { runContentFlow, runContentFromResearch, runResearch, loadPipeline } = require('../flows/contentCreation');
 const { supabase } = require('../database/supabase');
 const { runAgent } = require('../agents/agentRunner');
@@ -8,6 +10,8 @@ const cronManager = require('../scheduler/cronManager');
 const { createAgent, getNextPosition, seedDefaultPipeline } = require('../agents/agentFactory');
 const { generatePostUnico, generateCarouselImages, parseCarouselCards } = require('../services/imageGenerator');
 const { checkRateLimit } = require('../utils/rateLimiter');
+
+const UPLOADS_DIR = path.join(__dirname, '../../uploads/images');
 
 // Per-chatId state Maps (supports multiple concurrent tenants)
 const pendingCronFlows = new Map();     // chatId -> flow data
@@ -339,14 +343,12 @@ async function askForFormat(bot, chatId, topic, directText = null, contextText =
   );
 }
 
-async function uploadImageToStorage(buf, draftId, filename) {
-  const path = `${draftId}/${filename}`;
-  const { error } = await supabase.storage
-    .from('draft-images')
-    .upload(path, buf, { contentType: 'image/png', upsert: true });
-  if (error) throw new Error(`Storage upload failed: ${error.message}`);
-  const { data } = supabase.storage.from('draft-images').getPublicUrl(path);
-  return data.publicUrl;
+function saveImageLocally(buf, tenantId, draftId, filename) {
+  const dir = path.join(UPLOADS_DIR, tenantId, draftId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, filename), buf);
+  const base = (process.env.EXTERNAL_URL || 'http://localhost:3000').replace(/\/$/, '');
+  return `${base}/images/${tenantId}/${draftId}/${filename}`;
 }
 
 function buildEditLink(draftId) {
@@ -466,11 +468,16 @@ async function handleImageCallback(bot, query, tenant) {
   if (format === 'post_unico') {
     await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
     try {
-      let postText = final_content;
+      let sourceContent = final_content;
+      if (draft_id) {
+        const { data: freshDraft } = await supabase.from('content_drafts').select('final_content').eq('id', draft_id).single();
+        if (freshDraft?.final_content) sourceContent = freshDraft.final_content;
+      }
+      let postText = sourceContent;
       try {
-        const jsonStr = final_content.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+        const jsonStr = sourceContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
         const parsed = JSON.parse(jsonStr);
-        let raw = typeof parsed.content === 'string' ? parsed.content : final_content;
+        let raw = typeof parsed.content === 'string' ? parsed.content : sourceContent;
         raw = raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
         postText = raw;
       } catch {}
@@ -478,10 +485,10 @@ async function handleImageCallback(bot, query, tenant) {
       await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
       if (draft_id) {
         try {
-          const url = await uploadImageToStorage(imgBuf, draft_id, 'post.png');
+          const url = saveImageLocally(imgBuf, tenant.id, draft_id, 'post.png');
           await supabase.from('content_drafts').update({ image_urls: [url] }).eq('id', draft_id);
         } catch (upErr) {
-          logger.warn('Image upload to storage failed', { error: upErr.message });
+          logger.warn('Image save locally failed', { error: upErr.message });
         }
       }
     } catch (err) {
@@ -494,7 +501,12 @@ async function handleImageCallback(bot, query, tenant) {
   if (format === 'carrossel') {
     await bot.sendMessage(chatId, '🎠 Gerando cards do carrossel...');
     try {
-      const cards = parseCarouselCards(final_content);
+      let contentToUse = final_content;
+      if (draft_id) {
+        const { data: freshDraft } = await supabase.from('content_drafts').select('final_content').eq('id', draft_id).single();
+        if (freshDraft?.final_content) contentToUse = freshDraft.final_content;
+      }
+      const cards = parseCarouselCards(contentToUse);
       await bot.sendMessage(chatId, `📋 ${cards.length} cards encontrados. Gerando imagens...`);
       const images = await generateCarouselImages(cards);
       const uploadedUrls = [];
@@ -503,10 +515,10 @@ async function handleImageCallback(bot, query, tenant) {
         await bot.sendPhoto(chatId, buf, { caption }, { filename: `card_${i + 1}.png`, contentType: 'image/png' });
         if (draft_id) {
           try {
-            const url = await uploadImageToStorage(buf, draft_id, `card_${i + 1}.png`);
+            const url = saveImageLocally(buf, tenant.id, draft_id, `card_${i + 1}.png`);
             uploadedUrls.push(url);
           } catch (upErr) {
-            logger.warn('Card upload to storage failed', { error: upErr.message, index: i });
+            logger.warn('Card save locally failed', { error: upErr.message, index: i });
           }
         }
       }
