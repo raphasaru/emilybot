@@ -3,7 +3,7 @@ import { verifyCookie } from './src/app/lib/auth';
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login'];
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
@@ -11,7 +11,7 @@ export function middleware(req: NextRequest) {
   const cookie = req.cookies.get('dash_auth')?.value;
   if (!cookie) return NextResponse.redirect(new URL('/login', req.url));
 
-  const tenantId = verifyCookie(cookie);
+  const tenantId = await verifyCookie(cookie);
   if (!tenantId) return NextResponse.redirect(new URL('/login', req.url));
 
   const requestHeaders = new Headers(req.headers);

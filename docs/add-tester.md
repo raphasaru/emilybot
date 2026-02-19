@@ -17,6 +17,7 @@ node scripts/register-tenant.js \
   --bot_token "123456:ABC..." \
   --chat_id "987654321" \
   --gemini_key "AIza..." \
+  --dashboard_password "senha-do-tester" \
   --owner_name "Nome do Tester" \
   --niche "nicho de atuação" \
   --specialization "área1, área2, área3" \
@@ -24,9 +25,31 @@ node scripts/register-tenant.js \
   --fal_key "fal-..."
 ```
 
+| Flag | Obrigatório | Descrição |
+|------|-------------|-----------|
+| `--name` | ✅ | Identificador interno (sem espaços) |
+| `--bot_token` | ✅ | Token do BotFather |
+| `--chat_id` | ✅ | Chat ID do Telegram do tester |
+| `--gemini_key` | ✅ | API key do Google AI Studio |
+| `--dashboard_password` | ✅ | Senha de acesso ao dashboard web |
+| `--owner_name` | — | Nome do dono (ex: "João Silva") |
+| `--niche` | — | Nicho de atuação (ex: "fotografia de casamentos") |
+| `--specialization` | — | Áreas específicas (ex: "Instagram, agenda, precificação") |
+| `--brave_key` | — | API key do Brave Search |
+| `--fal_key` | — | API key do fal.ai (geração de imagens) |
+
 ## 4. Reiniciar o bot
 ```bash
 pm2 restart emilybot
 ```
 
 O bot do tester já estará ativo e isolado dos demais.
+
+## 5. Personalizar IDV2 (opcional, pelo Telegram)
+Após o bot estar rodando, o tester pode configurar o visual do post único via `/branding`:
+
+```
+/branding nome João Silva
+/branding username joaosilva
+/branding profile_pic https://link-da-foto.jpg
+```
