@@ -21,8 +21,8 @@ function extractJsonFromText(text) {
   return null;
 }
 
-async function searchBrave(topic) {
-  const key = process.env.BRAVE_SEARCH_KEY;
+async function searchBrave(topic, braveSearchKey) {
+  const key = braveSearchKey || process.env.BRAVE_SEARCH_KEY;
   if (!key) {
     logger.warn('BRAVE_SEARCH_KEY not set — skipping web search');
     return null;
@@ -43,13 +43,15 @@ async function searchBrave(topic) {
   }
 }
 
-async function loadPipeline() {
-  const { data: agents, error } = await supabase
+async function loadPipeline(tenantId) {
+  let query = supabase
     .from('agents')
     .select('*')
     .eq('is_active', true)
     .not('position_in_flow', 'is', null)
     .order('position_in_flow');
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  const { data: agents, error } = await query;
 
   if (error) throw new Error(`Failed to load agents: ${error.message}`);
   if (!agents || !agents.length) throw new Error('No active agents in pipeline');
@@ -57,25 +59,25 @@ async function loadPipeline() {
 }
 
 // Runs only the pesquisador (first agent). Returns research text + remaining agents.
-async function runResearch(topics) {
+async function runResearch(topics, tenantKeys) {
   logger.info('Running research phase', { topics });
 
-  const pipeline = await loadPipeline();
+  const pipeline = await loadPipeline(tenantKeys?.tenantId);
   const [researcher, ...remainingAgents] = pipeline;
 
-  const searchResults = await searchBrave(topics);
+  const searchResults = await searchBrave(topics, tenantKeys?.braveSearchKey);
   const searchContext = searchResults
     ? `\n\nContexto de tendencias atual (pesquisa web):\n${searchResults}`
     : '';
 
   const input = `Tema: ${topics}${searchContext}`;
-  const researchText = await runAgent(researcher.system_prompt, input);
+  const researchText = await runAgent(researcher.system_prompt, input, tenantKeys?.geminiApiKey);
 
   return { researchText, remainingAgents };
 }
 
 // Runs redator + formatador on a chosen idea. Saves draft.
-async function runContentFromResearch(researchText, chosenIdea, format, remainingAgents) {
+async function runContentFromResearch(researchText, chosenIdea, format, remainingAgents, tenantKeys) {
   logger.info('Running content from research', { chosenIdea, format });
 
   let currentInput = `Ideia escolhida: ${chosenIdea}\n\nContexto de pesquisa:\n${researchText}\n\nFormato desejado: ${format}`;
@@ -83,22 +85,25 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
 
   for (const agent of remainingAgents) {
     logger.info(`Running agent: ${agent.display_name}`);
-    const output = await runAgent(agent.system_prompt, currentInput);
+    const output = await runAgent(agent.system_prompt, currentInput, tenantKeys?.geminiApiKey);
     results[agent.name] = output;
     currentInput = `${output}\n\nFormato desejado: ${format}`;
   }
 
   const finalContent = results[remainingAgents[remainingAgents.length - 1]?.name] || '';
 
+  const insertPayload = {
+    topic: chosenIdea,
+    format,
+    draft: results.redator || null,
+    final_content: finalContent,
+    status: 'completed',
+  };
+  if (tenantKeys?.tenantId) insertPayload.tenant_id = tenantKeys.tenantId;
+
   const { data: draft, error: saveError } = await supabase
     .from('content_drafts')
-    .insert({
-      topic: chosenIdea,
-      format,
-      draft: results.redator || null,
-      final_content: finalContent,
-      status: 'completed',
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -108,17 +113,18 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
 }
 
 // Full pipeline used by /conteudo command — backwards compatible.
-async function runContentFlow(topic, format = 'post_unico') {
+async function runContentFlow(topic, format = 'post_unico', tenantKeys) {
   logger.info('Starting content flow', { topic, format });
 
-  const { researchText, remainingAgents } = await runResearch(topic);
+  const { researchText, remainingAgents } = await runResearch(topic, tenantKeys);
   const researchParsed = extractJsonFromText(researchText);
 
   const { draft_id, final_content } = await runContentFromResearch(
     researchText,
     researchParsed?.ideas?.[0]?.title || topic,
     format,
-    remainingAgents
+    remainingAgents,
+    tenantKeys
   );
 
   return { draft_id, final_content, all_results: { pesquisador: researchText } };

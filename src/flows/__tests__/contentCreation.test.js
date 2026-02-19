@@ -60,7 +60,7 @@ describe('runResearch', () => {
     const result = await runResearch('IA');
 
     expect(runAgent).toHaveBeenCalledTimes(1);
-    expect(runAgent).toHaveBeenCalledWith('sp1', expect.stringContaining('IA'));
+    expect(runAgent).toHaveBeenCalledWith('sp1', expect.stringContaining('IA'), undefined);
     expect(result.researchText).toBe('1. Ideia A\n2. Ideia B\n3. Ideia C');
     expect(result.remainingAgents).toHaveLength(2);
   });
