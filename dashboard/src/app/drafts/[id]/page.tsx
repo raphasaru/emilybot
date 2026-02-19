@@ -10,7 +10,7 @@ interface Props {
 
 export default async function DraftPage({ params }: Props) {
   const supabase = getSupabase();
-  const tenantId = getTenantId();
+  const tenantId = await getTenantId();
   if (!tenantId) redirect('/login');
   const { data: draft, error } = await supabase
     .from('content_drafts')

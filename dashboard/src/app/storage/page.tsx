@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function StoragePage() {
   const supabase = getSupabase();
-  const tenantId = getTenantId();
+  const tenantId = await getTenantId();
   if (!tenantId) redirect('/login');
 
   const { data: rows, error } = await supabase.rpc('get_storage_usage');

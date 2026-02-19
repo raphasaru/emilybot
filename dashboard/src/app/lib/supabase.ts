@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { headers } from 'next/headers';
+import { cookies } from 'next/headers';
+import { verifyCookie } from './auth';
 
 export function getSupabase() {
   return createClient(
@@ -8,6 +9,8 @@ export function getSupabase() {
   );
 }
 
-export function getTenantId(): string | null {
-  return headers().get('x-tenant-id');
+export async function getTenantId(): Promise<string | null> {
+  const cookie = cookies().get('dash_auth')?.value;
+  if (!cookie) return null;
+  return verifyCookie(cookie);
 }

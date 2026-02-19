@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import { getSupabase } from '../../../../lib/supabase';
+import { getSupabase, getTenantId } from '../../../../lib/supabase';
 
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { draftId: string } }
 ) {
-  const tenantId = headers().get('x-tenant-id');
+  const tenantId = await getTenantId();
   if (!tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { draftId } = params;

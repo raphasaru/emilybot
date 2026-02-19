@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import { getSupabase } from '../../../lib/supabase';
+import { getSupabase, getTenantId } from '../../../lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const tenantId = headers().get('x-tenant-id');
+  const tenantId = await getTenantId();
   if (!tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const supabase = getSupabase();

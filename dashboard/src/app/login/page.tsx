@@ -20,7 +20,8 @@ export default function LoginPage() {
       body: JSON.stringify({ name, password }),
     });
     if (res.ok) {
-      router.push('/drafts');
+      window.location.href = '/drafts';
+      return;
     } else {
       setError('Usuário ou senha incorretos');
       setLoading(false);

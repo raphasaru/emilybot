@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function DraftsPage() {
   const supabase = getSupabase();
-  const tenantId = getTenantId();
+  const tenantId = await getTenantId();
   if (!tenantId) redirect('/login');
   const { data: drafts, error } = await supabase
     .from('content_drafts')
