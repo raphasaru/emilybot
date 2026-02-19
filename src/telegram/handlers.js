@@ -19,6 +19,7 @@ const pendingAgentFlows = new Map();    // chatId -> flow data
 const pendingFormatFlows = new Map();   // chatId -> flow data
 const pendingImageFlows = new Map();    // chatId -> flow data
 const pendingResearchFlows = new Map(); // chatId -> flow data
+const pendingCaptionFlows = new Map();  // chatId -> flow data
 
 const FORMAT_BUTTONS = [
   [
@@ -358,35 +359,86 @@ function buildEditLink(draftId) {
 }
 
 function extractCleanPreview(finalContent, format) {
-  if (format === 'post_unico') {
+  const stripMd = (s) => s.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
+  const parseJson = (content) => {
     try {
-      const jsonStr = finalContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
-      const parsed = JSON.parse(jsonStr);
+      const jsonStr = content.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+      return JSON.parse(jsonStr);
+    } catch { return null; }
+  };
+
+  if (format === 'post_unico') {
+    const parsed = parseJson(finalContent);
+    if (parsed) {
       const raw = typeof parsed.content === 'string' ? parsed.content : finalContent;
-      return raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
-    } catch {}
+      return stripMd(raw);
+    }
     return finalContent;
   }
 
   if (format === 'carrossel') {
-    try {
-      const jsonStr = finalContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
-      const parsed = JSON.parse(jsonStr);
+    const parsed = parseJson(finalContent);
+    if (parsed) {
       const cards = Array.isArray(parsed.content) ? parsed.content : (Array.isArray(parsed) ? parsed : null);
       if (cards) {
         return cards
           .map((c, i) => {
             const title = c.headline || c.title || c.titulo || c.gancho || Object.values(c)[0] || '';
             const body = c.body || c.texto || c.content || '';
-            return `*Card ${i + 1}:* ${title}${body ? `\n${body}` : ''}`;
+            return `Card ${i + 1}: ${title}${body ? `\n${body}` : ''}`;
           })
           .join('\n\n');
       }
-    } catch {}
+    }
+    return finalContent;
+  }
+
+  if (format === 'thread') {
+    const parsed = parseJson(finalContent);
+    if (parsed) {
+      const content = parsed.content;
+      if (Array.isArray(content)) {
+        return content.map((t) => (typeof t === 'string' ? t : t.text || t.content || JSON.stringify(t)));
+      }
+      if (typeof content === 'string') {
+        const parts = content.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
+        return parts.length > 1 ? parts : [content];
+      }
+    }
+    return [finalContent];
+  }
+
+  if (format === 'tweet') {
+    const parsed = parseJson(finalContent);
+    if (parsed) {
+      const raw = typeof parsed.content === 'string' ? parsed.content : finalContent;
+      return stripMd(raw);
+    }
+    return finalContent;
+  }
+
+  if (format === 'reels_roteiro') {
+    const parsed = parseJson(finalContent);
+    if (parsed) {
+      const content = typeof parsed.content === 'string' ? parsed.content : '';
+      const notes = parsed.publishing_notes ? `\n\n📝 ${parsed.publishing_notes}` : '';
+      return stripMd((content + notes).trim()) || finalContent;
+    }
     return finalContent;
   }
 
   return finalContent;
+}
+
+// Sends preview — handles thread (array of msgs) and other formats (string chunks)
+async function sendPreview(bot, chatId, preview) {
+  if (!preview) return;
+  if (Array.isArray(preview)) {
+    for (const msg of preview) if (msg) await bot.sendMessage(chatId, msg);
+  } else {
+    const chunks = preview.match(/.{1,4000}/gs) || [preview];
+    for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
+  }
 }
 
 async function runContentAndSend(bot, chatId, topic, format, tenant) {
@@ -395,11 +447,7 @@ async function runContentAndSend(bot, chatId, topic, format, tenant) {
     const result = await runContentFlow(topic, format, mkTenantKeys(tenant));
     await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
-    const preview = extractCleanPreview(result.final_content || '', format);
-    if (preview) {
-      const chunks = preview.match(/.{1,4000}/gs) || [preview];
-      for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
-    }
+    await sendPreview(bot, chatId, extractCleanPreview(result.final_content || '', format));
 
     const editLink = buildEditLink(result.draft_id);
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
@@ -424,11 +472,7 @@ async function runResearchContentAndSend(bot, chatId, topic, format, researchTex
     const result = await runContentFromResearch(researchText, topic, format, remainingAgents, mkTenantKeys(tenant));
     await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
-    const preview = extractCleanPreview(result.final_content || '', format);
-    if (preview) {
-      const chunks = preview.match(/.{1,4000}/gs) || [preview];
-      for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
-    }
+    await sendPreview(bot, chatId, extractCleanPreview(result.final_content || '', format));
 
     const editLink = buildEditLink(result.draft_id);
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
@@ -481,7 +525,7 @@ async function handleImageCallback(bot, query, tenant) {
         raw = raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
         postText = raw;
       } catch {}
-      const imgBuf = await generatePostUnico(postText, tenant?.branding);
+      const imgBuf = await generatePostUnico(postText, tenant?.branding, tenant?.gemini_api_key);
       await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
       if (draft_id) {
         try {
@@ -491,6 +535,15 @@ async function handleImageCallback(bot, query, tenant) {
           logger.warn('Image save locally failed', { error: upErr.message });
         }
       }
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: sourceContent, draft_id });
+      await bot.sendMessage(chatId, '📝 Quer a legenda desse post?', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Sim, gerar legenda', callback_data: 'caption:generate' },
+            { text: '❌ Não', callback_data: 'caption:skip' },
+          ]],
+        },
+      });
     } catch (err) {
       logger.error('Post unico image failed', { error: err.message });
       await bot.sendMessage(chatId, `❌ Erro ao gerar imagem: ${err.message}`);
@@ -526,6 +579,15 @@ async function handleImageCallback(bot, query, tenant) {
         await supabase.from('content_drafts').update({ image_urls: uploadedUrls }).eq('id', draft_id);
       }
       await bot.sendMessage(chatId, '✅ Carrossel gerado!');
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: contentToUse, draft_id });
+      await bot.sendMessage(chatId, '📝 Quer a legenda desse carrossel?', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Sim, gerar legenda', callback_data: 'caption:generate' },
+            { text: '❌ Não', callback_data: 'caption:skip' },
+          ]],
+        },
+      });
     } catch (err) {
       logger.error('Carousel image failed', { error: err.message });
       await bot.sendMessage(chatId, `❌ Erro ao gerar carrossel: ${err.message}`);
@@ -637,7 +699,7 @@ async function handleFormatCallback(bot, query, tenant) {
     if (format === 'post_unico') {
       await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
       try {
-        const imgBuf = await generatePostUnico(directText, tenant?.branding);
+        const imgBuf = await generatePostUnico(directText, tenant?.branding, tenant?.gemini_api_key);
         await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único' }, { filename: 'post.png', contentType: 'image/png' });
       } catch (err) {
         logger.error('Direct post image failed', { error: err.message });
@@ -685,7 +747,7 @@ async function handleFormatCallback(bot, query, tenant) {
       `Adapte APENAS o que for estritamente necessario para o formato "${format}".\n\n` +
       `TEXTO DO USUARIO:\n${contextText}`;
     try {
-      const pipeline = await loadPipeline(mkTenantKeys(tenant));
+      const pipeline = await loadPipeline(tenant?.id);
       const remainingAgents = pipeline.slice(1); // skip pesquisador (position 1)
       await runResearchContentAndSend(bot, chatId, topic, format, contextWithInstructions, remainingAgents, tenant);
     } catch (err) {
@@ -948,11 +1010,7 @@ async function handleFreeMessage(bot, msg, tenant) {
       const result = await runContentFromResearch(researchText, chosenIdea, schedule.format, remainingAgents, mkTenantKeys(tenant));
       await bot.sendMessage(msg.chat.id, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
-      const preview = extractCleanPreview(result.final_content || '', schedule.format);
-      if (preview) {
-        const chunks = preview.match(/.{1,4000}/gs) || [preview];
-        for (const chunk of chunks) await bot.sendMessage(msg.chat.id, chunk);
-      }
+      await sendPreview(bot, msg.chat.id, extractCleanPreview(result.final_content || '', schedule.format));
 
       const editLink = buildEditLink(result.draft_id);
       if (editLink) await bot.sendMessage(msg.chat.id, `✏️ Editar: ${editLink}`);
@@ -1073,6 +1131,47 @@ async function handleCriarAgente(bot, msg, tenant) {
   await startAgentOnboarding(bot, msg.chat.id);
 }
 
+async function handleCaptionCallback(bot, query, tenant) {
+  const chatId = query.message.chat.id;
+  const chatIdStr = String(chatId);
+  await bot.answerCallbackQuery(query.id);
+  await bot.editMessageReplyMarkup(
+    { inline_keyboard: [] },
+    { chat_id: chatId, message_id: query.message.message_id }
+  );
+
+  if (query.data === 'caption:skip') {
+    pendingCaptionFlows.delete(chatIdStr);
+    return;
+  }
+
+  if (!pendingCaptionFlows.has(chatIdStr)) {
+    return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente.');
+  }
+
+  const { format, final_content } = pendingCaptionFlows.get(chatIdStr);
+  pendingCaptionFlows.delete(chatIdStr);
+
+  await bot.sendMessage(chatId, '✍️ Gerando legenda com hashtags...');
+
+  try {
+    const isCarousel = format === 'carrossel';
+    const prompt = isCarousel
+      ? `Com base nesse carrossel, escreva uma legenda envolvente para Instagram. Inclua: gancho forte, descricao do conteudo, CTA claro e hashtags relevantes. Use emojis. Retorne APENAS a legenda pronta.\n\nConteudo:\n${final_content}`
+      : `Com base nesse post, escreva uma legenda envolvente para Instagram. Inclua: gancho forte, emojis, CTA claro e hashtags relevantes. Retorne APENAS a legenda pronta.\n\nConteudo:\n${final_content}`;
+
+    const caption = await runAgent(
+      'Voce e um especialista em copywriting e growth para redes sociais. Escreva legendas que geram engajamento.',
+      prompt,
+      { model: 'sonnet', maxTokens: 1024, geminiApiKey: tenant?.gemini_api_key }
+    );
+    await bot.sendMessage(chatId, caption);
+  } catch (err) {
+    logger.error('Caption generation failed', { error: err.message });
+    await bot.sendMessage(chatId, `❌ Erro ao gerar legenda: ${err.message}`);
+  }
+}
+
 async function handlePipeline(bot, msg, tenant) {
   const chatId = msg.chat.id;
   if (!tenant?.id) {
@@ -1099,6 +1198,7 @@ module.exports = {
   handleConteudo,
   handleFormatCallback,
   handleImageCallback,
+  handleCaptionCallback,
   handleResearchCallback,
   handleAgendamentos,
   handlePausar,
@@ -1115,4 +1215,5 @@ module.exports = {
   _setPendingFormatFlow: (chatId, v) => v ? pendingFormatFlows.set(String(chatId), v) : pendingFormatFlows.delete(String(chatId)),
   _setPendingImageFlow: (chatId, v) => v ? pendingImageFlows.set(String(chatId), v) : pendingImageFlows.delete(String(chatId)),
   _setPendingResearchFlow: (chatId, v) => v ? pendingResearchFlows.set(String(chatId), v) : pendingResearchFlows.delete(String(chatId)),
+  _setPendingCaptionFlow: (chatId, v) => v ? pendingCaptionFlows.set(String(chatId), v) : pendingCaptionFlows.delete(String(chatId)),
 };

@@ -102,19 +102,20 @@ Entregue em JSON:
       system_prompt: `Voce e o especialista em formatos de conteudo para redes sociais.
 Sua missao: adaptar o conteudo recebido para o formato solicitado.
 
-Formatos disponiveis:
-- carrossel: slides numerados com capa, desenvolvimento e CTA
-- post_unico: caption completa com emojis estrategicos e hashtags
-- tweet: mensagem impactante em ate 280 caracteres
-- thread: sequencia de tweets numerados (1/N)
-- reels_roteiro: gancho (3s) + desenvolvimento (ate 55s) + CTA (5s)
+Formatos e estrutura JSON esperada:
 
-Entregue SEMPRE em JSON:
-{
-  "format": "...",
-  "content": "...",
-  "publishing_notes": "..."
-}`,
+post_unico: {"format":"post_unico","content":"texto do post com emojis e hashtags","publishing_notes":"..."}
+
+carrossel: {"format":"carrossel","content":[{"headline":"...","body":"..."},{"headline":"...","body":"..."}],"publishing_notes":"..."}
+
+thread: {"format":"thread","content":["1/N primeiro tweet","2/N segundo tweet","3/N terceiro tweet"],"publishing_notes":"..."}
+(content deve ser um array de strings, cada item e um tweet de ate 280 caracteres)
+
+reels_roteiro: {"format":"reels_roteiro","content":"GANCHO (0-3s): ...\n\nDESENVOLVIMENTO (3-58s): ...\n\nCTA (58-63s): ...","publishing_notes":"..."}
+
+tweet: {"format":"tweet","content":"mensagem em ate 280 caracteres","publishing_notes":"..."}
+
+Entregue SEMPRE JSON valido sem markdown code blocks.`,
     },
   ];
 }

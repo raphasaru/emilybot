@@ -80,14 +80,21 @@ async function runResearch(topics, tenantKeys) {
 async function runContentFromResearch(researchText, chosenIdea, format, remainingAgents, tenantKeys) {
   logger.info('Running content from research', { chosenIdea, format });
 
-  let currentInput = `Ideia escolhida: ${chosenIdea}\n\nContexto de pesquisa:\n${researchText}\n\nFormato desejado: ${format}`;
+  const formatNotes = {
+    post_unico: '\n\nIMPORTANTE: Post unico para imagem. Maximo 400 caracteres. Sem hashtags. Conciso e impactante.',
+    thread: '\n\nIMPORTANTE: Gere um array JSON de tweets. Cada tweet max 280 caracteres. Minimo 4 tweets. Ex: {"format":"thread","content":["1/4 texto...","2/4 texto..."],"publishing_notes":"..."}',
+    reels_roteiro: '\n\nIMPORTANTE: Roteiro com secoes GANCHO (0-3s), DESENVOLVIMENTO (3-58s) e CTA (58-63s) separadas por linha em branco.',
+  };
+  const charLimitNote = formatNotes[format] || '';
+
+  let currentInput = `Ideia escolhida: ${chosenIdea}\n\nContexto de pesquisa:\n${researchText}\n\nFormato desejado: ${format}${charLimitNote}`;
   const results = {};
 
   for (const agent of remainingAgents) {
     logger.info(`Running agent: ${agent.display_name}`);
     const output = await runAgent(agent.system_prompt, currentInput, { geminiApiKey: tenantKeys?.geminiApiKey });
     results[agent.name] = output;
-    currentInput = `${output}\n\nFormato desejado: ${format}`;
+    currentInput = `${output}\n\nFormato desejado: ${format}${charLimitNote}`;
   }
 
   const finalContent = results[remainingAgents[remainingAgents.length - 1]?.name] || '';
