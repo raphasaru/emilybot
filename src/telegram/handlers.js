@@ -259,8 +259,23 @@ async function askForFormat(bot, chatId, topic, directText = null, contextText =
   );
 }
 
+async function uploadImageToStorage(buf, draftId, filename) {
+  const path = `${draftId}/${filename}`;
+  const { error } = await supabase.storage
+    .from('draft-images')
+    .upload(path, buf, { contentType: 'image/png', upsert: true });
+  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+  const { data } = supabase.storage.from('draft-images').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function buildEditLink(draftId) {
+  if (!draftId) return null;
+  const base = process.env.DASHBOARD_URL || 'http://localhost:3001';
+  return `${base}/drafts/${draftId}`;
+}
+
 function extractCleanPreview(finalContent, format) {
-  if (format === 'carrossel') return null; // skip preview, image says it all
   if (format === 'post_unico') {
     try {
       const jsonStr = finalContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
@@ -268,7 +283,27 @@ function extractCleanPreview(finalContent, format) {
       const raw = typeof parsed.content === 'string' ? parsed.content : finalContent;
       return raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
     } catch {}
+    return finalContent;
   }
+
+  if (format === 'carrossel') {
+    try {
+      const jsonStr = finalContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+      const parsed = JSON.parse(jsonStr);
+      const cards = Array.isArray(parsed.content) ? parsed.content : (Array.isArray(parsed) ? parsed : null);
+      if (cards) {
+        return cards
+          .map((c, i) => {
+            const title = c.headline || c.title || c.titulo || c.gancho || Object.values(c)[0] || '';
+            const body = c.body || c.texto || c.content || '';
+            return `*Card ${i + 1}:* ${title}${body ? `\n${body}` : ''}`;
+          })
+          .join('\n\n');
+      }
+    } catch {}
+    return finalContent;
+  }
+
   return finalContent;
 }
 
@@ -276,12 +311,16 @@ async function runContentAndSend(bot, chatId, topic, format) {
   await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
   try {
     const result = await runContentFlow(topic, format);
+    await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
     const preview = extractCleanPreview(result.final_content || '', format);
     if (preview) {
       const chunks = preview.match(/.{1,4000}/gs) || [preview];
       for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
     }
-    await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
+    const editLink = buildEditLink(result.draft_id);
+    if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
     if (['post_unico', 'carrossel'].includes(format)) {
       pendingImageFlow = { format, final_content: result.final_content, draft_id: result.draft_id, chatId };
@@ -301,12 +340,16 @@ async function runResearchContentAndSend(bot, chatId, topic, format, researchTex
   await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
   try {
     const result = await runContentFromResearch(researchText, topic, format, remainingAgents);
+    await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
     const preview = extractCleanPreview(result.final_content || '', format);
     if (preview) {
       const chunks = preview.match(/.{1,4000}/gs) || [preview];
       for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
     }
-    await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
+    const editLink = buildEditLink(result.draft_id);
+    if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
     if (['post_unico', 'carrossel'].includes(format)) {
       pendingImageFlow = { format, final_content: result.final_content, draft_id: result.draft_id, chatId };
@@ -342,18 +385,24 @@ async function handleImageCallback(bot, query) {
   if (format === 'post_unico') {
     await bot.sendMessage(chatId, '🖼️ Gerando imagem do post...');
     try {
-      // Extract text content from formatador JSON (may be wrapped in ```json block)
       let postText = final_content;
       try {
         const jsonStr = final_content.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
         const parsed = JSON.parse(jsonStr);
         let raw = typeof parsed.content === 'string' ? parsed.content : final_content;
-        // Strip markdown bold/italic
         raw = raw.replace(/\*\*(.*?)\*\*/gs, '$1').replace(/\*(.*?)\*/gs, '$1');
         postText = raw;
       } catch {}
       const imgBuf = await generatePostUnico(postText);
       await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
+      if (draft_id) {
+        try {
+          const url = await uploadImageToStorage(imgBuf, draft_id, 'post.png');
+          await supabase.from('content_drafts').update({ image_urls: [url] }).eq('id', draft_id);
+        } catch (upErr) {
+          logger.warn('Image upload to storage failed', { error: upErr.message });
+        }
+      }
     } catch (err) {
       logger.error('Post unico image failed', { error: err.message });
       await bot.sendMessage(chatId, `❌ Erro ao gerar imagem: ${err.message}`);
@@ -367,8 +416,21 @@ async function handleImageCallback(bot, query) {
       const cards = parseCarouselCards(final_content);
       await bot.sendMessage(chatId, `📋 ${cards.length} cards encontrados. Gerando imagens...`);
       const images = await generateCarouselImages(cards);
-      for (const { buf, caption } of images) {
-        await bot.sendPhoto(chatId, buf, { caption }, { filename: 'card.png', contentType: 'image/png' });
+      const uploadedUrls = [];
+      for (let i = 0; i < images.length; i++) {
+        const { buf, caption } = images[i];
+        await bot.sendPhoto(chatId, buf, { caption }, { filename: `card_${i + 1}.png`, contentType: 'image/png' });
+        if (draft_id) {
+          try {
+            const url = await uploadImageToStorage(buf, draft_id, `card_${i + 1}.png`);
+            uploadedUrls.push(url);
+          } catch (upErr) {
+            logger.warn('Card upload to storage failed', { error: upErr.message, index: i });
+          }
+        }
+      }
+      if (draft_id && uploadedUrls.length) {
+        await supabase.from('content_drafts').update({ image_urls: uploadedUrls }).eq('id', draft_id);
       }
       await bot.sendMessage(chatId, '✅ Carrossel gerado!');
     } catch (err) {
@@ -501,9 +563,11 @@ async function handleFormatCallback(bot, query) {
           .from('content_drafts')
           .insert({ topic: topic || 'contexto direto', format: 'post_unico', draft: null, final_content: contextText, status: 'completed' })
           .select().single();
+        await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${draft?.id || 'N/A'})`);
         const chunks = contextText.match(/.{1,4000}/gs) || [contextText];
         for (const chunk of chunks) await bot.sendMessage(chatId, chunk);
-        await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${draft?.id || 'N/A'})`);
+        const editLink = buildEditLink(draft?.id);
+        if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
         pendingImageFlow = { format: 'post_unico', final_content: contextText, draft_id: draft?.id, chatId };
         await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
           reply_markup: { inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]] },
@@ -698,12 +762,23 @@ async function handleFreeMessage(bot, msg) {
 
     try {
       const result = await runContentFromResearch(researchText, chosenIdea, schedule.format, remainingAgents);
-      const content = result.final_content || 'Conteudo nao gerado';
-      const chunks = content.match(/.{1,4000}/gs) || [content];
-      for (const chunk of chunks) {
-        await bot.sendMessage(msg.chat.id, chunk);
-      }
       await bot.sendMessage(msg.chat.id, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
+
+      const preview = extractCleanPreview(result.final_content || '', schedule.format);
+      if (preview) {
+        const chunks = preview.match(/.{1,4000}/gs) || [preview];
+        for (const chunk of chunks) await bot.sendMessage(msg.chat.id, chunk);
+      }
+
+      const editLink = buildEditLink(result.draft_id);
+      if (editLink) await bot.sendMessage(msg.chat.id, `✏️ Editar: ${editLink}`);
+
+      if (['post_unico', 'carrossel'].includes(schedule.format)) {
+        pendingImageFlow = { format: schedule.format, final_content: result.final_content, draft_id: result.draft_id, chatId: msg.chat.id };
+        await bot.sendMessage(msg.chat.id, '🎨 Quer gerar as imagens?', {
+          reply_markup: { inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]] },
+        });
+      }
     } catch (err) {
       logger.error('Content from research failed', { error: err.message });
       await bot.sendMessage(msg.chat.id, `❌ Erro ao escrever conteudo: ${err.message}`);
