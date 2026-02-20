@@ -15,7 +15,10 @@ jest.mock('../../database/supabase', () => {
 
 jest.mock('../../utils/crypto', () => ({
   encrypt: jest.fn((v) => v ? `enc_${v}` : null),
-  decrypt: jest.fn((v) => v ? v.replace('enc_', '') : null),
+  decrypt: jest.fn((v) => {
+    const parts = (v || '').split(':');
+    return parts[parts.length - 1].replace('enc_', '');
+  }),
 }));
 
 const { supabase } = require('../../database/supabase');
@@ -59,7 +62,7 @@ describe('tenantService', () => {
 
   test('getActiveTenants decrypts keys', async () => {
     supabase.eq.mockResolvedValue({
-      data: [{ id: '1', gemini_api_key: 'enc_gem', brave_search_key: 'enc_brave', fal_key: 'enc_fal' }],
+      data: [{ id: '1', gemini_api_key: 'iv:tag:enc_gem', brave_search_key: 'iv:tag:enc_brave', fal_key: 'iv:tag:enc_fal' }],
       error: null,
     });
 

@@ -87,7 +87,7 @@ describe('cronManager', () => {
 
     const cronManager = require('../cronManager');
     const fakeTask = { stop: jest.fn() };
-    cronManager._activeCrons.set('abc', fakeTask);
+    cronManager._activeCrons.set('abc', { cronTask: fakeTask, tenantId: null });
 
     await cronManager.pause('abc');
 
