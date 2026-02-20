@@ -14,12 +14,18 @@ export default async function DraftPage({ params }: Props) {
   if (!tenantId) redirect('/login');
   const { data: draft, error } = await supabase
     .from('content_drafts')
-    .select('id, topic, format, draft, final_content, image_urls, created_at')
+    .select('id, topic, format, draft, final_content, image_urls, caption, created_at')
     .eq('id', params.id)
     .eq('tenant_id', tenantId)
     .single();
 
   if (error || !draft) notFound();
+
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('instagram_user_id')
+    .eq('id', tenantId)
+    .single();
 
   return (
     <div className="max-w-5xl mx-auto p-8">
@@ -32,7 +38,7 @@ export default async function DraftPage({ params }: Props) {
       <p className="text-xs text-gray-500 mb-6">
         {draft.format ?? 'sem formato'} · {new Date(draft.created_at).toLocaleString('pt-BR')}
       </p>
-      <DraftEditor draft={draft} />
+      <DraftEditor draft={{ ...draft, instagram_user_id: tenant?.instagram_user_id ?? null }} />
     </div>
   );
 }
