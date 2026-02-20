@@ -444,12 +444,33 @@ async function renderNewsCapa(slide, branding, ogImageBuf, total) {
   return canvas.encode('png');
 }
 
-async function renderNewsContentSlide(slide, branding, slideIdx, total) {
+async function renderNewsContentSlide(slide, branding, slideIdx, total, thumbBuf) {
   const canvas = createCanvas(NEWS_W, NEWS_H);
   const ctx = canvas.getContext('2d');
 
   newsBaseBg(ctx, branding);
   newsAccentBar(ctx, branding);
+
+  // Thumbnail strip at top if image available
+  let thumbH = 0;
+  if (thumbBuf) {
+    try {
+      const thumbImg = await loadImage(thumbBuf);
+      thumbH = 280;
+      const scale = Math.max(NEWS_W / thumbImg.width, thumbH / thumbImg.height);
+      const sw = thumbImg.width * scale;
+      const sh = thumbImg.height * scale;
+      ctx.drawImage(thumbImg, (NEWS_W - sw) / 2, 6, sw, sh);
+      // Dark overlay for readability
+      const grad = ctx.createLinearGradient(0, 6, 0, 6 + thumbH);
+      grad.addColorStop(0, 'rgba(0,0,0,0.1)');
+      grad.addColorStop(1, branding.secondary_color || '#1A1A2E');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 6, NEWS_W, thumbH);
+    } catch {
+      thumbH = 0;
+    }
+  }
 
   // Pre-measure total content height for vertical centering
   const labels = { resumo: 'RESUMO', pontos: 'PONTOS-CHAVE', impacto: 'IMPACTO' };
@@ -478,8 +499,9 @@ async function renderNewsContentSlide(slide, branding, slideIdx, total) {
 
   const totalContentH = labelH + titleH + gapH + bodyH;
   const reservedBottom = 80; // space for footer + indicator
-  const availH = NEWS_H - reservedBottom;
-  let y = Math.max(NEWS_PAD, (availH - totalContentH) / 2);
+  const topOffset = thumbH ? thumbH + 6 : 0;
+  const availH = NEWS_H - reservedBottom - topOffset;
+  let y = Math.max(topOffset + NEWS_PAD, topOffset + (availH - totalContentH) / 2);
 
   // Type label
   ctx.font = `bold 18px ${NEWS_FONT}`;
@@ -573,21 +595,29 @@ async function renderNewsCta(slide, branding, slideIdx, total) {
   return canvas.encode('png');
 }
 
-async function generateNewsCarouselSlides(slides, branding = {}, ogImageBuf = null) {
-  logger.info('Generating news carousel slides', { count: slides.length });
+async function generateNewsCarouselSlides(slides, branding = {}, ogImages = null) {
+  // ogImages: Buffer (legacy) or Buffer[] (multi-image)
+  const imgArray = Array.isArray(ogImages) ? ogImages : (ogImages ? [ogImages] : []);
+  logger.info('Generating news carousel slides', { count: slides.length, images: imgArray.length });
   const total = slides.length;
   const results = [];
+
+  // Distribute images: first → capa, rest → content slides in order
+  let contentImgIdx = 0;
 
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
     let buf;
 
     if (slide.type === 'capa') {
-      buf = await renderNewsCapa(slide, branding, ogImageBuf, total);
+      buf = await renderNewsCapa(slide, branding, imgArray[0] || null, total);
     } else if (slide.type === 'cta') {
       buf = await renderNewsCta(slide, branding, i, total);
     } else {
-      buf = await renderNewsContentSlide(slide, branding, i, total);
+      // Content slides get remaining images as thumbnails
+      const thumbBuf = imgArray[1 + contentImgIdx] || null;
+      contentImgIdx++;
+      buf = await renderNewsContentSlide(slide, branding, i, total, thumbBuf);
     }
 
     results.push({ buf, caption: `${i + 1}/${total}` });

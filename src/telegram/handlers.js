@@ -493,7 +493,7 @@ async function runContentAndSend(bot, chatId, topic, format, tenant) {
   }
 }
 
-async function runResearchContentAndSend(bot, chatId, topic, format, researchText, remainingAgents, tenant) {
+async function runResearchContentAndSend(bot, chatId, topic, format, researchText, remainingAgents, tenant, sourceUrls) {
   await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
   try {
     const result = await runContentFromResearch(researchText, topic, format, remainingAgents, mkTenantKeys(tenant));
@@ -505,7 +505,7 @@ async function runResearchContentAndSend(bot, chatId, topic, format, researchTex
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
     if (['post_unico', 'carrossel', 'carrossel_noticias'].includes(format)) {
-      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId, sourceUrls: [] });
+      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId, sourceUrls: sourceUrls || [] });
       await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
         reply_markup: {
           inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
@@ -631,17 +631,27 @@ async function handleImageCallback(bot, query, tenant) {
       }
 
       const { slides, sourceUrl } = parseNewsCarouselSlides(contentToUse);
-      await bot.sendMessage(chatId, `📋 ${slides.length} slides. Buscando imagem da fonte...`);
 
-      const urlToFetch = sourceUrl || sourceUrls?.[0]?.url || null;
-      let ogImageBuf = null;
-      if (urlToFetch) {
-        ogImageBuf = await fetchOgImage(urlToFetch);
+      // Collect URLs to fetch og:images from (source_url from content + Brave results)
+      const urlsToFetch = [];
+      if (sourceUrl) urlsToFetch.push(sourceUrl);
+      for (const s of (sourceUrls || [])) {
+        if (s.url && !urlsToFetch.includes(s.url)) urlsToFetch.push(s.url);
       }
 
-      await bot.sendMessage(chatId, ogImageBuf ? '🖼️ Imagem encontrada! Gerando slides...' : '⚡ Sem imagem da fonte. Gerando com fundo solido...');
+      await bot.sendMessage(chatId, `📋 ${slides.length} slides. Buscando imagens de ${urlsToFetch.length} fonte(s)...`);
 
-      const images = await generateNewsCarouselSlides(slides, tenant?.branding, ogImageBuf);
+      // Fetch og:images in parallel (max 5)
+      const ogResults = await Promise.all(
+        urlsToFetch.slice(0, 5).map((url) => fetchOgImage(url).catch(() => null))
+      );
+      const ogImages = ogResults.filter(Boolean);
+
+      await bot.sendMessage(chatId, ogImages.length
+        ? `🖼️ ${ogImages.length} imagem(ns) encontrada(s)! Gerando slides...`
+        : '⚡ Sem imagens das fontes. Gerando com fundo solido...');
+
+      const images = await generateNewsCarouselSlides(slides, tenant?.branding, ogImages);
       const uploadedUrls = [];
       for (let i = 0; i < images.length; i++) {
         const { buf, caption } = images[i];
@@ -678,15 +688,20 @@ async function handleImageCallback(bot, query, tenant) {
 async function handlePesquisarAction(bot, chatId, tenant) {
   await bot.sendMessage(chatId, '🔍 Pesquisando tendencias para sugerir temas...');
   try {
-    const { researchText, remainingAgents } = await runResearch('marketing digital, IA, Meta Ads, Google Ads', mkTenantKeys(tenant));
+    const { researchText, remainingAgents, sourceUrls } = await runResearch('marketing digital, IA, Meta Ads, Google Ads', mkTenantKeys(tenant));
     const options = parseResearchOptions(researchText);
+
+    if (sourceUrls?.length) {
+      const srcList = sourceUrls.map((s) => `- ${s.title} (${s.url})`).join('\n');
+      await bot.sendMessage(chatId, `🔗 Fontes pesquisadas:\n${srcList}`);
+    }
 
     if (!options.length) {
       await bot.sendMessage(chatId, `📊 Pesquisa concluida:\n\n${researchText.slice(0, 1500)}\n\nQual tema voce quer? Use /conteudo <tema>.`);
       return;
     }
 
-    pendingResearchFlows.set(String(chatId), { options, researchText, remainingAgents });
+    pendingResearchFlows.set(String(chatId), { options, researchText, remainingAgents, sourceUrls });
 
     const buttons = options.map((opt, i) => [{
       text: opt.length > 50 ? opt.slice(0, 47) + '...' : opt,
@@ -714,7 +729,7 @@ async function handleResearchCallback(bot, query, tenant) {
     return bot.sendMessage(chatId, '❌ Nenhuma pesquisa pendente.');
   }
 
-  const { options, researchText, remainingAgents } = pendingResearchFlows.get(chatIdStr);
+  const { options, researchText, remainingAgents, sourceUrls } = pendingResearchFlows.get(chatIdStr);
   const topic = options[idx];
   pendingResearchFlows.delete(chatIdStr);
 
@@ -727,7 +742,7 @@ async function handleResearchCallback(bot, query, tenant) {
     { chat_id: chatId, message_id: query.message.message_id, parse_mode: 'Markdown' }
   );
 
-  pendingFormatFlows.set(chatIdStr, { topic, chatId, researchData: { researchText, remainingAgents } });
+  pendingFormatFlows.set(chatIdStr, { topic, chatId, researchData: { researchText, remainingAgents, sourceUrls } });
   await bot.sendMessage(chatId, `🎨 Qual formato para *"${topic}"*?`, {
     parse_mode: 'Markdown',
     reply_markup: { inline_keyboard: FORMAT_BUTTONS },
@@ -844,7 +859,7 @@ async function handleFormatCallback(bot, query, tenant) {
   }
 
   if (researchData) {
-    await runResearchContentAndSend(bot, chatId, topic, format, researchData.researchText, researchData.remainingAgents, tenant);
+    await runResearchContentAndSend(bot, chatId, topic, format, researchData.researchText, researchData.remainingAgents, tenant, researchData.sourceUrls);
   } else {
     await runContentAndSend(bot, chatId, topic, format, tenant);
   }
