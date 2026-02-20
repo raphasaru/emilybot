@@ -36,7 +36,9 @@ async function searchBrave(topic, braveSearchKey) {
     });
 
     const results = response.data?.web?.results || [];
-    return results.map((r) => `- ${r.title}: ${r.description || r.url}`).join('\n');
+    const urls = results.map((r) => ({ url: r.url, title: r.title }));
+    const text = results.map((r) => `- ${r.title} (${r.url})${r.description ? ': ' + r.description : ''}`).join('\n');
+    return { text, urls };
   } catch (err) {
     logger.warn('Brave Search failed', { error: err.message });
     return null;
@@ -65,15 +67,15 @@ async function runResearch(topics, tenantKeys) {
   const pipeline = await loadPipeline(tenantKeys?.tenantId);
   const [researcher, ...remainingAgents] = pipeline;
 
-  const searchResults = await searchBrave(topics, tenantKeys?.braveSearchKey);
-  const searchContext = searchResults
-    ? `\n\nContexto de tendencias atual (pesquisa web):\n${searchResults}`
+  const searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);
+  const searchContext = searchData?.text
+    ? `\n\nContexto de tendencias atual (pesquisa web):\n${searchData.text}`
     : '';
 
   const input = `Tema: ${topics}${searchContext}`;
   const researchText = await runAgent(researcher.system_prompt, input, { geminiApiKey: tenantKeys?.geminiApiKey });
 
-  return { researchText, remainingAgents };
+  return { researchText, remainingAgents, sourceUrls: searchData?.urls || [] };
 }
 
 // Runs redator + formatador on a chosen idea. Saves draft.
@@ -123,7 +125,7 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
 async function runContentFlow(topic, format = 'post_unico', tenantKeys) {
   logger.info('Starting content flow', { topic, format });
 
-  const { researchText, remainingAgents } = await runResearch(topic, tenantKeys);
+  const { researchText, remainingAgents, sourceUrls } = await runResearch(topic, tenantKeys);
   const researchParsed = extractJsonFromText(researchText);
 
   const { draft_id, final_content } = await runContentFromResearch(
@@ -134,7 +136,7 @@ async function runContentFlow(topic, format = 'post_unico', tenantKeys) {
     tenantKeys
   );
 
-  return { draft_id, final_content, all_results: { pesquisador: researchText } };
+  return { draft_id, final_content, all_results: { pesquisador: researchText }, sourceUrls };
 }
 
 module.exports = {

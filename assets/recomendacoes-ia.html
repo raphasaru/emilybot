@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>30 Recomendações de Conteúdo IA</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f13;
+      color: #e2e2e8;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    header {
+      max-width: 1200px;
+      margin: 0 auto 2rem;
+    }
+
+    header h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.4rem;
+    }
+
+    header p {
+      font-size: 0.85rem;
+      color: #6b7280;
+    }
+
+    .controls {
+      max-width: 1200px;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .search-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 240px;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 0.9rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #6b7280;
+      pointer-events: none;
+    }
+
+    #busca {
+      width: 100%;
+      padding: 0.65rem 1rem 0.65rem 2.5rem;
+      background: #1a1a24;
+      border: 1px solid #2d2d3d;
+      border-radius: 8px;
+      color: #e2e2e8;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #busca:focus { border-color: #7c3aed; }
+    #busca::placeholder { color: #4b5563; }
+
+    .filter-wrap {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .tag-btn {
+      padding: 0.45rem 0.9rem;
+      border-radius: 20px;
+      border: 1px solid #2d2d3d;
+      background: #1a1a24;
+      color: #9ca3af;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .tag-btn:hover, .tag-btn.active {
+      background: #7c3aed;
+      border-color: #7c3aed;
+      color: #fff;
+    }
+
+    .stats {
+      max-width: 1200px;
+      margin: 0 auto 1rem;
+      font-size: 0.8rem;
+      color: #4b5563;
+    }
+
+    .table-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid #1f1f2e;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    thead tr {
+      background: #13131d;
+      border-bottom: 1px solid #2d2d3d;
+    }
+
+    th {
+      padding: 0.85rem 1rem;
+      text-align: left;
+      font-weight: 600;
+      color: #7c3aed;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #1a1a24;
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+
+    tbody tr:hover {
+      background: #1c1c2a;
+    }
+
+    tbody tr:hover .titulo {
+      color: #a78bfa;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    tbody tr.hidden { display: none; }
+
+    td {
+      padding: 0.85rem 1rem;
+      vertical-align: middle;
+    }
+
+    td:first-child {
+      font-weight: 700;
+      color: #7c3aed;
+      width: 40px;
+      text-align: center;
+    }
+
+    .titulo {
+      font-weight: 600;
+      color: #e2e2e8;
+      line-height: 1.4;
+      max-width: 340px;
+      transition: color 0.15s;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.4rem;
+    }
+
+    .titulo svg {
+      flex-shrink: 0;
+      margin-top: 2px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      color: #7c3aed;
+    }
+
+    tbody tr:hover .titulo svg { opacity: 1; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-thread    { background: #1e3a5f; color: #60a5fa; }
+    .badge-carrossel { background: #1a2e1a; color: #4ade80; }
+    .badge-polêmico  { background: #3b1a1a; color: #f87171; }
+    .badge-notícia   { background: #2d2010; color: #fbbf24; }
+    .badge-tutorial  { background: #1e1a3b; color: #a78bfa; }
+
+    .cat-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      background: #1f1f2e;
+      color: #9ca3af;
+      white-space: nowrap;
+    }
+
+    .engajamento {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      white-space: nowrap;
+    }
+
+    .engajamento span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+    }
+
+    .angulo {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      line-height: 1.4;
+      max-width: 260px;
+    }
+
+    .no-results {
+      display: none;
+      text-align: center;
+      padding: 3rem;
+      color: #4b5563;
+      font-size: 0.9rem;
+    }
+
+    .no-results.show { display: block; }
+
+    @media (max-width: 768px) {
+      th:nth-child(5), td:nth-child(5),
+      th:nth-child(6), td:nth-child(6) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>30 Recomendações de Conteúdo — IA</h1>
+  <p>Baseado em tweets reais de alto engajamento (out/2025–fev/2026) · Clique numa linha para ver o tweet original · Fonte: Apify/altimis/scweet</p>
+</header>
+
+<div class="controls">
+  <div class="search-wrap">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input id="busca" type="text" placeholder="Buscar por título, formato, categoria, ângulo..." />
+  </div>
+  <div class="filter-wrap">
+    <button class="tag-btn active" data-filter="todos">Todos</button>
+    <button class="tag-btn" data-filter="Thread">Thread</button>
+    <button class="tag-btn" data-filter="Carrossel">Carrossel</button>
+    <button class="tag-btn" data-filter="Polêmico">Polêmico</button>
+    <button class="tag-btn" data-filter="Notícia">Notícia</button>
+    <button class="tag-btn" data-filter="Tutorial">Tutorial</button>
+    <button class="tag-btn" data-filter="Ferramentas">Ferramentas</button>
+    <button class="tag-btn" data-filter="Educação">Educação</button>
+    <button class="tag-btn" data-filter="Tendências">Tendências</button>
+  </div>
+</div>
+
+<div class="stats">
+  Exibindo <span id="count">30</span> de 30 recomendações
+</div>
+
+<div class="table-wrap">
+  <table id="tabela">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Título Sugerido</th>
+        <th>Formato</th>
+        <th>Categoria</th>
+        <th>Engajamento Ref.</th>
+        <th>Ângulo ptBR</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr data-formato="Thread" data-cat="Tendências Educação" data-url="https://x.com/krishdotdev/status/1998026051738632387">
+        <td>1</td>
+        <td class="titulo"><span>A matemática está em tudo na tecnologia — e você ainda questiona isso?</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 16.5K</span> &nbsp; <span>👁️ 537K</span></td>
+        <td class="angulo">Adaptar lista para devs BR, finalizar com gancho "você ainda acha que não precisa de math?"</td>
+      </tr>
+
+      <tr data-formato="Polêmico" data-cat="Reflexão Debate" data-url="https://x.com/DrDominicNg/status/2024031389461737710">
+        <td>2</td>
+        <td class="titulo"><span>Escrever te deixa mais inteligente. Deixar a IA escrever te deixa mais burro</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-polêmico">Polêmico</span></td>
+        <td><span class="cat-badge">Reflexão</span></td>
+        <td class="engajamento"><span>❤️ 17.7K</span> &nbsp; <span>👁️ 480K</span></td>
+        <td class="angulo">Gancho controverso — vai gerar debate intenso no Brasil</td>
+      </tr>
+
+      <tr data-formato="Notícia" data-cat="Ferramentas Tendências" data-url="https://x.com/GithubProjects/status/2010396169474838754">
+        <td>3</td>
+        <td class="titulo"><span>Ferramenta open-source para remover IA do Windows — e por que tanta gente quer isso</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-notícia">Notícia</span></td>
+        <td><span class="cat-badge">Ferramentas</span></td>
+        <td class="engajamento"><span>❤️ 71.6K</span> &nbsp; <span>👁️ 1.4M</span></td>
+        <td class="angulo">Maior engajamento da amostra — adaptar contexto de privacidade para o público BR</td>
+      </tr>
+
+      <tr data-formato="Notícia" data-cat="Tendências" data-url="https://x.com/tomwarren/status/2019039874771550516">
+        <td>4</td>
+        <td class="titulo"><span>Anthropic humilhou a OpenAI ao vivo no Super Bowl</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-notícia">Notícia</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 23.4K</span> &nbsp; <span>👁️ 3.5M</span></td>
+        <td class="angulo">Notícia quente — contar a história com humor e contexto da guerra entre LLMs</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Ferramentas" data-url="https://x.com/AIHighlight/status/2011456870469316907">
+        <td>5</td>
+        <td class="titulo"><span>72+ ferramentas de IA para terminar meses de trabalho em minutos</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Ferramentas</span></td>
+        <td class="engajamento"><span>❤️ 3.3K</span> &nbsp; <span>👁️ 361K</span></td>
+        <td class="angulo">Listar categorias em ptBR, destacar as mais usadas no Brasil (Canva, HeyGen, ElevenLabs)</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/PythonPr/status/2021839184999395506">
+        <td>6</td>
+        <td class="titulo"><span>LLM vs RAG vs Agente de IA vs IA Agêntica — qual a diferença real?</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 1.3K</span> &nbsp; <span>👁️ 62K</span></td>
+        <td class="angulo">Traduzir com exemplos práticos do dia a dia — analogias em ptBR</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Educação Ferramentas" data-url="https://x.com/khushabu_27/status/2023251925656064278">
+        <td>7</td>
+        <td class="titulo"><span>MIT libera 12 livros de IA e ML gratuitos — salva essa lista</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 917</span> &nbsp; <span>👁️ 36K</span></td>
+        <td class="angulo">Listar em ptBR com resumo de cada livro + link direto</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/swapnakpanda/status/2007869846957310169">
+        <td>8</td>
+        <td class="titulo"><span>Stanford oferece cursos GRATUITOS de IA — de iniciante a LLM do zero</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 2K</span> &nbsp; <span>👁️ 106K</span></td>
+        <td class="angulo">Guia de trilha de aprendizado com os links — formato "roteiro completo"</td>
+      </tr>
+
+      <tr data-formato="Polêmico" data-cat="Tendências Reflexão" data-url="https://x.com/Schuldensuehner/status/2020225622744928680">
+        <td>9</td>
+        <td class="titulo"><span>O FOBO chegou — e pode ser pior que o FOMO para sua carreira</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-polêmico">Polêmico</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 1.4K</span> &nbsp; <span>👁️ 184K</span></td>
+        <td class="angulo">Fear Of Becoming Obsolete — contextualizar no mercado de trabalho BR</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/TheTuringPost/status/2022599637623038442">
+        <td>10</td>
+        <td class="titulo"><span>13 tipos de modelos de IA que você precisa conhecer (e o que cada um faz)</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 1.4K</span> &nbsp; <span>👁️ 54K</span></td>
+        <td class="angulo">Explicar LLM, SLM, VLM, MoE etc. em linguagem simples — glossário visual</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Tendências" data-url="https://x.com/burkov/status/1996102081996861907">
+        <td>11</td>
+        <td class="titulo"><span>TabPFN: o modelo de IA que destrona o XGBoost em dados tabulares</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 2.6K</span> &nbsp; <span>👁️ 329K</span></td>
+        <td class="angulo">Resumir o paper da Nature com implicações práticas para cientistas de dados BR</td>
+      </tr>
+
+      <tr data-formato="Tutorial" data-cat="Tutorial Ferramentas" data-url="https://x.com/poetengineer__/status/2024167043726029042">
+        <td>12</td>
+        <td class="titulo"><span>Visualizei minhas anotações como rede 3D com IA — veja como fazer</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-tutorial">Tutorial</span></td>
+        <td><span class="cat-badge">Tutorial</span></td>
+        <td class="engajamento"><span>❤️ 9.5K</span> &nbsp; <span>👁️ 376K</span></td>
+        <td class="angulo">Obsidian + embeddings LLM — tutorial replicável com resultado visual impactante</td>
+      </tr>
+
+      <tr data-formato="Tutorial" data-cat="Tutorial Educação" data-url="https://x.com/techNmak/status/2022426803298800077">
+        <td>13</td>
+        <td class="titulo"><span>A estrutura de pastas que todo projeto de IA deveria ter</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-tutorial">Tutorial</span></td>
+        <td><span class="cat-badge">Tutorial</span></td>
+        <td class="engajamento"><span>❤️ 352</span> &nbsp; <span>🔖 450</span></td>
+        <td class="angulo">Alto bookmark ratio — conteúdo técnico prático para devs BR</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/Igor_Buinevici/status/2023790267200139681">
+        <td>14</td>
+        <td class="titulo"><span>40 termos de IA explicados de forma simples — do básico ao avançado</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 314</span> &nbsp; <span>👁️ 16K</span></td>
+        <td class="angulo">Glossário em ptBR — altíssimo potencial de salvar e compartilhar</td>
+      </tr>
+
+      <tr data-formato="Notícia" data-cat="Tendências" data-url="https://x.com/Google/status/2018400088788222275">
+        <td>15</td>
+        <td class="titulo"><span>Google usou IA para sequenciar genomas animais em dias — o que antes levava 13 anos</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-notícia">Notícia</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 6.8K</span> &nbsp; <span>👁️ 4.2M</span></td>
+        <td class="angulo">Conectar com avanços da biotech e saúde — impacto da IA na ciência</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Educação Reflexão" data-url="https://x.com/TivadarDanka/status/2011454039989604420">
+        <td>16</td>
+        <td class="titulo"><span>A matemática que a faculdade te ensina vs. a que você realmente precisa para ML</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 3.9K</span> &nbsp; <span>👁️ 189K</span></td>
+        <td class="angulo">Gancho polêmico — "80% do que a faculdade te ensina é irrelevante para ML"</td>
+      </tr>
+
+      <tr data-formato="Notícia" data-cat="Tendências" data-url="https://x.com/NASAMars/status/2017389082196767158">
+        <td>17</td>
+        <td class="titulo"><span>A NASA está usando IA para planejar rotas do rover em Marte sem intervenção humana</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-notícia">Notícia</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 2K</span> &nbsp; <span>👁️ 67K</span></td>
+        <td class="angulo">Contextualizar o avanço da IA agêntica — de Marte ao seu trabalho</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Tendências Saúde" data-url="https://x.com/smritiirani/status/2013955390283919771">
+        <td>18</td>
+        <td class="titulo"><span>Como a IA está detectando demência com 80% de precisão via EEG</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Saúde</span></td>
+        <td class="engajamento"><span>❤️ 978</span> &nbsp; <span>👁️ 11K</span></td>
+        <td class="angulo">IA na saúde — tema de alto engajamento no Brasil, conectar com SUS e acesso</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Ferramentas Reflexão" data-url="https://x.com/musicben_eth/status/2021226697706639499">
+        <td>19</td>
+        <td class="titulo"><span>Ferramentas de IA para música em 2026 — quais são éticas e quais não são</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Ferramentas</span></td>
+        <td class="engajamento"><span>❤️ 298</span> &nbsp; <span>🔖 421</span></td>
+        <td class="angulo">Diferenciar ferramentas éticas das que copiam sem licença — muito relevante para criadores BR</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/swapnakpanda/status/2010383794008940691">
+        <td>20</td>
+        <td class="titulo"><span>MIT vs Stanford vs Harvard: qual trilha de IA gratuita escolher?</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 821</span> &nbsp; <span>👁️ 45K</span></td>
+        <td class="angulo">Comparativo das trilhas gratuitas mais famosas — muito compartilhável no BR</td>
+      </tr>
+
+      <tr data-formato="Notícia" data-cat="Tendências" data-url="https://x.com/HamdanMohammed/status/2019414167309152607">
+        <td>21</td>
+        <td class="titulo"><span>Táxi 100% autônomo com IA já roda em Dubai — e vem aí para mais cidades</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-notícia">Notícia</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 1.2K</span> &nbsp; <span>👁️ 50K</span></td>
+        <td class="angulo">Conectar com futuro da mobilidade urbana — São Paulo, Uber, 99</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/Igor_Buinevici/status/2023790267200139681">
+        <td>22</td>
+        <td class="titulo"><span>O que é um LLM e por que você precisa entender isso agora</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 314</span> &nbsp; <span>👁️ 16K</span></td>
+        <td class="angulo">Conteúdo de entrada — engaja quem está começando, alto potencial de compartilhamento</td>
+      </tr>
+
+      <tr data-formato="Notícia" data-cat="Tendências" data-url="https://x.com/MIT/status/2018719550913601856">
+        <td>23</td>
+        <td class="titulo"><span>IA cria materiais sintéticos e MIT ensina robôs a fabricá-los</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-notícia">Notícia</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 686</span> &nbsp; <span>👁️ 68K</span></td>
+        <td class="angulo">Fronteira entre IA e ciência de materiais — potencial industrial enorme</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/goyalshaliniuk/status/2023646091502075986">
+        <td>24</td>
+        <td class="titulo"><span>10 modelos de ML que todo cientista de dados precisa dominar</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 214</span> &nbsp; <span>👁️ 4K</span></td>
+        <td class="angulo">Conteúdo educativo perene — do Linear Regression ao Neural Network com exemplos BR</td>
+      </tr>
+
+      <tr data-formato="Polêmico" data-cat="Reflexão Debate" data-url="https://x.com/BCherich/status/2022753168023560561">
+        <td>25</td>
+        <td class="titulo"><span>O Excel ainda é a ferramenta mais importante em dados — e você está ignorando</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-polêmico">Polêmico</span></td>
+        <td><span class="cat-badge">Reflexão</span></td>
+        <td class="engajamento"><span>❤️ 418</span> &nbsp; <span>👁️ 26K</span></td>
+        <td class="angulo">Gera debate entre devs e analistas no BR — "não abandone o Excel pelo Python"</td>
+      </tr>
+
+      <tr data-formato="Carrossel" data-cat="Educação" data-url="https://x.com/PythonPr/status/2023720330041454964">
+        <td>26</td>
+        <td class="titulo"><span>Fórmulas matemáticas de ML e Deep Learning reunidas em um só lugar</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-carrossel">Carrossel</span></td>
+        <td><span class="cat-badge">Educação</span></td>
+        <td class="engajamento"><span>❤️ 497</span> &nbsp; <span>🔖 248</span></td>
+        <td class="angulo">Recurso visual de referência — alto potencial de bookmark e compartilhamento</td>
+      </tr>
+
+      <tr data-formato="Polêmico" data-cat="Tendências Reflexão" data-url="https://x.com/search?q=AI+creativity+humans+study+2026&f=top">
+        <td>27</td>
+        <td class="titulo"><span>IA já supera humanos em criatividade — estudo com 100 mil pessoas</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-polêmico">Polêmico</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ —</span> &nbsp; <span>👁️ —</span></td>
+        <td class="angulo">Provocativo — vai gerar debate sobre criatividade humana vs IA no BR</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Tendências Negócios" data-url="https://x.com/Schuldensuehner/status/2020225622744928680">
+        <td>28</td>
+        <td class="titulo"><span>IA Agêntica está matando SaaS — o que sua empresa precisa fazer agora</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ 1.4K</span> &nbsp; <span>👁️ 184K</span></td>
+        <td class="angulo">Perspectiva de negócios — "a vantagem competitiva do seu SaaS acabou"</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Reflexão Saúde" data-url="https://x.com/smritiirani/status/2013955390283919771">
+        <td>29</td>
+        <td class="titulo"><span>70% dos dados de saúde globais ignoram mulheres — e a IA herda esse viés</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Reflexão</span></td>
+        <td class="engajamento"><span>❤️ 978</span> &nbsp; <span>👁️ 11K</span></td>
+        <td class="angulo">IA + diversidade + saúde — combo de alto engajamento, conectar com realidade BR</td>
+      </tr>
+
+      <tr data-formato="Thread" data-cat="Tendências" data-url="https://x.com/search?q=agentic+AI+2026+future&f=top">
+        <td>30</td>
+        <td class="titulo"><span>IA hoje vs. IA amanhã: como a era dos agentes vai mudar tudo em 2026</span><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td>
+        <td><span class="badge badge-thread">Thread</span></td>
+        <td><span class="cat-badge">Tendências</span></td>
+        <td class="engajamento"><span>❤️ variado</span></td>
+        <td class="angulo">Conteúdo prospectivo — resumir as grandes tendências do ano para o público BR</td>
+      </tr>
+
+    </tbody>
+  </table>
+  <div class="no-results" id="noResults">Nenhum resultado encontrado. Tente outro termo ou filtro.</div>
+</div>
+
+<script>
+  const busca = document.getElementById('busca');
+  const tagBtns = document.querySelectorAll('.tag-btn');
+  const rows = document.querySelectorAll('#tabela tbody tr[data-url]');
+  const count = document.getElementById('count');
+  const noResults = document.getElementById('noResults');
+
+  let filtroAtivo = 'todos';
+
+  // Clique na linha abre o tweet original
+  rows.forEach(row => {
+    row.addEventListener('click', () => {
+      window.open(row.dataset.url, '_blank', 'noopener');
+    });
+  });
+
+  function filtrar() {
+    const termo = busca.value.toLowerCase().trim();
+    let visiveis = 0;
+
+    rows.forEach(row => {
+      const texto = row.textContent.toLowerCase();
+      const formato = (row.dataset.formato || '').toLowerCase();
+      const cat = (row.dataset.cat || '').toLowerCase();
+
+      const matchBusca = !termo || texto.includes(termo);
+      const matchFiltro = filtroAtivo === 'todos'
+        || formato.includes(filtroAtivo.toLowerCase())
+        || cat.includes(filtroAtivo.toLowerCase());
+
+      if (matchBusca && matchFiltro) {
+        row.classList.remove('hidden');
+        visiveis++;
+      } else {
+        row.classList.add('hidden');
+      }
+    });
+
+    count.textContent = visiveis;
+    noResults.classList.toggle('show', visiveis === 0);
+  }
+
+  busca.addEventListener('input', filtrar);
+
+  tagBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tagBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filtroAtivo = btn.dataset.filter;
+      filtrar();
+    });
+  });
+</script>
+
+</body>
+</html>
