@@ -12,6 +12,7 @@ function encryptKeys(data) {
     brave_search_key: encrypt(data.brave_search_key, ENC_KEY),
     fal_key: encrypt(data.fal_key, ENC_KEY),
     apify_key: data.apify_key ? encrypt(data.apify_key, ENC_KEY) : data.apify_key,
+    instagram_token: data.instagram_token ? encrypt(data.instagram_token, ENC_KEY) : data.instagram_token,
   };
 }
 
@@ -34,14 +35,15 @@ function decryptKeys(tenant) {
     brave_search_key: safeDecrypt(tenant.brave_search_key),
     fal_key: safeDecrypt(tenant.fal_key),
     apify_key: safeDecrypt(tenant.apify_key),
+    instagram_token: safeDecrypt(tenant.instagram_token),
   };
 }
 
-async function createTenant({ name, bot_token, chat_id, gemini_api_key, brave_search_key, fal_key, apify_key, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash }) {
-  const encrypted = encryptKeys({ gemini_api_key, brave_search_key, fal_key, apify_key });
+async function createTenant({ name, bot_token, chat_id, gemini_api_key, brave_search_key, fal_key, apify_key, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash, instagram_user_id, instagram_token }) {
+  const encrypted = encryptKeys({ gemini_api_key, brave_search_key, fal_key, apify_key, instagram_token });
   const { data, error } = await supabase
     .from('tenants')
-    .insert({ name, bot_token, chat_id, ...encrypted, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash })
+    .insert({ name, bot_token, chat_id, ...encrypted, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash, instagram_user_id })
     .select()
     .single();
 
@@ -78,6 +80,7 @@ async function updateTenant(id, updates) {
   if (toUpdate.brave_search_key) toUpdate.brave_search_key = encrypt(toUpdate.brave_search_key, ENC_KEY);
   if (toUpdate.fal_key) toUpdate.fal_key = encrypt(toUpdate.fal_key, ENC_KEY);
   if (toUpdate.apify_key) toUpdate.apify_key = encrypt(toUpdate.apify_key, ENC_KEY);
+  if (toUpdate.instagram_token) toUpdate.instagram_token = encrypt(toUpdate.instagram_token, ENC_KEY);
 
   const { data, error } = await supabase
     .from('tenants')
