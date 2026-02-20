@@ -86,6 +86,16 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
     post_unico: '\n\nIMPORTANTE: Post unico para imagem. Maximo 400 caracteres. Sem hashtags. Conciso e impactante.',
     thread: '\n\nIMPORTANTE: Gere um array JSON de tweets. Cada tweet max 280 caracteres. Minimo 4 tweets. Ex: {"format":"thread","content":["1/4 texto...","2/4 texto..."],"publishing_notes":"..."}',
     reels_roteiro: '\n\nIMPORTANTE: Roteiro com secoes GANCHO (0-3s), DESENVOLVIMENTO (3-58s) e CTA (58-63s) separadas por linha em branco.',
+    carrossel_noticias:
+      '\n\nIMPORTANTE: Carrossel de NOTICIA. Gere um JSON com 5-7 slides. Estrutura obrigatoria:\n' +
+      '{"format":"carrossel_noticias","source_url":"URL da fonte principal","content":[\n' +
+      '  {"type":"capa","headline":"titulo impactante da noticia","source":"nome do site fonte"},\n' +
+      '  {"type":"resumo","title":"O que e?","body":"resumo claro da novidade em 2-3 frases"},\n' +
+      '  {"type":"pontos","title":"Pontos-chave","items":["ponto 1","ponto 2","ponto 3","ponto 4"]},\n' +
+      '  {"type":"impacto","title":"Por que importa?","body":"analise do impacto para o publico"},\n' +
+      '  {"type":"cta","question":"pergunta engajante","action":"Siga para mais novidades"}\n' +
+      '],"publishing_notes":"..."}\n' +
+      'Pode ter 5-7 slides. Tipos extras permitidos: resumo, pontos, impacto (repita conforme necessario). Capa sempre primeiro, CTA sempre ultimo.',
   };
   const charLimitNote = formatNotes[format] || '';
 
