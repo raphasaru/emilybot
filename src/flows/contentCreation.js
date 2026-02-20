@@ -52,13 +52,13 @@ async function searchGoogleNews(topic, apifyKey) {
   }
 
   const actorId = 'scrapestorm~google-news-scraper-fast-cheap-pay-per-results';
-  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${apifyKey}&timeout=60&memory=256`;
+  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${apifyKey}&timeout=120&memory=512`;
 
   try {
     const response = await axios.post(
       url,
-      { keyword: topic, language: 'Portuguese', country: 'Brazil 🇧🇷', maxitems: 8, time_filter: 'Recent 🔥' },
-      { timeout: 70000 }
+      { keyword: topic, maxitems: 8 },
+      { timeout: 130000 }
     );
 
     const items = Array.isArray(response.data) ? response.data : [];
