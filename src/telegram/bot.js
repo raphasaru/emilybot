@@ -18,6 +18,8 @@ const {
   handleFreeMessage,
   handleCriarAgente,
   handlePipeline,
+  handleInstagramCallback,
+  handleInstagram,
 } = require('./handlers');
 const { logger } = require('../utils/logger');
 
@@ -93,6 +95,11 @@ function createBot(tenant) {
     handlePipeline(bot, msg, tenant);
   });
 
+  bot.onText(/\/instagram(?:\s+(.+))?/, (msg, match) => {
+    if (!guard(msg.chat.id)) return;
+    handleInstagram(bot, msg, tenant, match?.[1]?.trim());
+  });
+
   // Inline button callbacks
   bot.on('callback_query', (query) => {
     if (!guard(query.message.chat.id)) return;
@@ -104,6 +111,8 @@ function createBot(tenant) {
       handleImageCallback(bot, query, tenant);
     } else if (query.data?.startsWith('caption:')) {
       handleCaptionCallback(bot, query, tenant);
+    } else if (query.data?.startsWith('instagram:')) {
+      handleInstagramCallback(bot, query, tenant);
     }
   });
 
