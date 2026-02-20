@@ -87,7 +87,8 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
     thread: '\n\nIMPORTANTE: Gere um array JSON de tweets. Cada tweet max 280 caracteres. Minimo 4 tweets. Ex: {"format":"thread","content":["1/4 texto...","2/4 texto..."],"publishing_notes":"..."}',
     reels_roteiro: '\n\nIMPORTANTE: Roteiro com secoes GANCHO (0-3s), DESENVOLVIMENTO (3-58s) e CTA (58-63s) separadas por linha em branco.',
     carrossel_noticias:
-      '\n\nIMPORTANTE: Carrossel de NOTICIA. Gere um JSON com 5-7 slides. Estrutura obrigatoria:\n' +
+      '\n\nREGRA CRITICA: Use APENAS fatos que aparecem no contexto de pesquisa acima. NAO invente dados, versoes, datas ou comparacoes. Se a pesquisa nao menciona algo, NAO inclua. Precisao factual e obrigatoria em noticias.\n\n' +
+      'IMPORTANTE: Carrossel de NOTICIA. Gere um JSON com 5-7 slides. Estrutura obrigatoria:\n' +
       '{"format":"carrossel_noticias","source_url":"URL da fonte principal","content":[\n' +
       '  {"type":"capa","headline":"titulo impactante da noticia","source":"nome do site fonte"},\n' +
       '  {"type":"resumo","title":"O que e?","body":"resumo claro da novidade em 2-3 frases"},\n' +

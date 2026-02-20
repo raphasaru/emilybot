@@ -368,18 +368,12 @@ function newsAccentBar(ctx, branding) {
 }
 
 function newsSlideIndicator(ctx, slideNum, total, branding) {
-  const dotR = 5;
-  const gap = 16;
-  const totalW = total * dotR * 2 + (total - 1) * gap;
-  let x = (NEWS_W - totalW) / 2;
-  const y = NEWS_H - 40;
-  for (let i = 0; i < total; i++) {
-    ctx.beginPath();
-    ctx.arc(x + dotR, y, dotR, 0, Math.PI * 2);
-    ctx.fillStyle = i === slideNum ? (branding.primary_color || '#FF5722') : 'rgba(255,255,255,0.3)';
-    ctx.fill();
-    x += dotR * 2 + gap;
-  }
+  const label = `${slideNum + 1}/${total}`;
+  ctx.font = `bold 22px ${NEWS_FONT}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, NEWS_W / 2, NEWS_H - 30);
+  ctx.textAlign = 'left';
 }
 
 function newsBrandingFooter(ctx, branding) {
@@ -457,43 +451,72 @@ async function renderNewsContentSlide(slide, branding, slideIdx, total) {
   newsBaseBg(ctx, branding);
   newsAccentBar(ctx, branding);
 
+  // Pre-measure total content height for vertical centering
   const labels = { resumo: 'RESUMO', pontos: 'PONTOS-CHAVE', impacto: 'IMPACTO' };
-  ctx.font = `bold 18px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.primary_color || '#FF5722';
-  ctx.fillText(labels[slide.type] || slide.type?.toUpperCase() || '', NEWS_PAD, 80);
-
+  const labelH = 18 + 20; // label font size + gap
   ctx.font = `bold 42px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.text_color || '#FFFFFF';
-  const titleLines = wrapTextCanvas(ctx, slide.title || '', NEWS_W - NEWS_PAD * 2);
-  let y = 140;
-  for (const line of titleLines.slice(0, 2)) {
-    ctx.fillText(line, NEWS_PAD, y);
-    y += 52;
-  }
+  const titleLines = wrapTextCanvas(ctx, slide.title || '', NEWS_W - NEWS_PAD * 2).slice(0, 2);
+  const titleH = titleLines.length * 52;
+  const gapH = 30;
 
-  y += 30;
+  let bodyH = 0;
+  let bodyLines = [];
+  let itemsData = [];
 
   if (slide.type === 'pontos' && Array.isArray(slide.items)) {
     ctx.font = `32px ${NEWS_FONT}`;
     for (const item of slide.items.slice(0, 6)) {
+      const lines = wrapTextCanvas(ctx, item, NEWS_W - NEWS_PAD * 2 - 40).slice(0, 2);
+      itemsData.push(lines);
+      bodyH += lines.length * 44 + 20;
+    }
+  } else if (slide.body) {
+    ctx.font = `30px ${NEWS_FONT}`;
+    bodyLines = wrapTextCanvas(ctx, slide.body, NEWS_W - NEWS_PAD * 2).slice(0, 18);
+    bodyH = bodyLines.length * 42;
+  }
+
+  const totalContentH = labelH + titleH + gapH + bodyH;
+  const reservedBottom = 80; // space for footer + indicator
+  const availH = NEWS_H - reservedBottom;
+  let y = Math.max(NEWS_PAD, (availH - totalContentH) / 2);
+
+  // Type label
+  ctx.font = `bold 18px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.primary_color || '#FF5722';
+  ctx.fillText(labels[slide.type] || slide.type?.toUpperCase() || '', NEWS_PAD, y + 18);
+  y += labelH;
+
+  // Title
+  ctx.font = `bold 42px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  for (const line of titleLines) {
+    ctx.fillText(line, NEWS_PAD, y + 42);
+    y += 52;
+  }
+
+  y += gapH;
+
+  // Body or items
+  if (slide.type === 'pontos' && itemsData.length) {
+    ctx.font = `32px ${NEWS_FONT}`;
+    for (const lines of itemsData) {
       ctx.beginPath();
-      ctx.arc(NEWS_PAD + 8, y - 10, 6, 0, Math.PI * 2);
+      ctx.arc(NEWS_PAD + 8, y + 22, 6, 0, Math.PI * 2);
       ctx.fillStyle = branding.primary_color || '#FF5722';
       ctx.fill();
       ctx.fillStyle = branding.text_color || '#FFFFFF';
-      const itemLines = wrapTextCanvas(ctx, item, NEWS_W - NEWS_PAD * 2 - 40);
-      for (const line of itemLines.slice(0, 2)) {
-        ctx.fillText(line, NEWS_PAD + 30, y);
+      for (const line of lines) {
+        ctx.fillText(line, NEWS_PAD + 30, y + 32);
         y += 44;
       }
       y += 20;
     }
-  } else if (slide.body) {
+  } else if (bodyLines.length) {
     ctx.font = `30px ${NEWS_FONT}`;
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    const bodyLines = wrapTextCanvas(ctx, slide.body, NEWS_W - NEWS_PAD * 2);
-    for (const line of bodyLines.slice(0, 18)) {
-      ctx.fillText(line, NEWS_PAD, y);
+    for (const line of bodyLines) {
+      ctx.fillText(line, NEWS_PAD, y + 30);
       y += 42;
     }
   }
