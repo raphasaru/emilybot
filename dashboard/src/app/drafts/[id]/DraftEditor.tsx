@@ -11,6 +11,8 @@ interface Draft {
   final_content: string | null;
   draft: string | null;
   image_urls: string[] | null;
+  caption: string | null;
+  instagram_user_id?: string | null;
 }
 
 export default function DraftEditor({ draft }: { draft: Draft }) {
@@ -25,6 +27,12 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
   const [imgUrls, setImgUrls] = useState<string[]>(draft.image_urls ?? []);
   const [loading, setLoading] = useState(false);
   const [zipping, setZipping] = useState(false);
+  const [caption, setCaption] = useState(draft.caption ?? '');
+  const [captionStatus, setCaptionStatus] = useState('');
+  const [generatingCaption, setGeneratingCaption] = useState(false);
+  const [igStatus, setIgStatus] = useState('');
+  const [igPosted, setIgPosted] = useState(false);
+  const [posting, setPosting] = useState(false);
 
   const canGenerate = draft.format === 'post_unico' || draft.format === 'carrossel';
   const isCarousel = draft.format === 'carrossel';
@@ -65,6 +73,46 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
     });
     setSaveStatus(res.ok ? 'Salvo ✓' : 'Erro ao salvar');
     setTimeout(() => setSaveStatus(''), 2000);
+  }
+
+  async function handleGenerateCaption() {
+    setGeneratingCaption(true);
+    setCaptionStatus('');
+    try {
+      const res = await fetch(`/api/drafts/${draft.id}/actions/caption`, { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      const { caption: generated } = await res.json();
+      setCaption(generated);
+      setCaptionStatus('Gerada ✓');
+    } catch (err) {
+      setCaptionStatus('Erro ao gerar');
+    } finally {
+      setGeneratingCaption(false);
+      setTimeout(() => setCaptionStatus(''), 3000);
+    }
+  }
+
+  async function handlePostInstagram() {
+    setPosting(true);
+    setIgStatus('');
+    try {
+      const res = await fetch(`/api/drafts/${draft.id}/actions/instagram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(JSON.stringify(err.error));
+      }
+      const { postId } = await res.json();
+      setIgPosted(true);
+      setIgStatus(`✅ Postado! ID: ${postId}`);
+    } catch (err) {
+      setIgStatus(`❌ Erro: ${(err as Error).message}`);
+    } finally {
+      setPosting(false);
+    }
   }
 
   async function handleGenerate() {
@@ -215,6 +263,40 @@ export default function DraftEditor({ draft }: { draft: Draft }) {
                 </a>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Caption + Instagram section */}
+      {imgUrls.length > 0 && (
+        <div className="mt-6 space-y-3 border-t border-gray-800 pt-6">
+          <p className="text-xs text-gray-500 uppercase tracking-widest">Legenda para Instagram</p>
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            rows={6}
+            placeholder="Legenda com hashtags..."
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-sm leading-relaxed focus:outline-none focus:border-purple-500 resize-y"
+          />
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={handleGenerateCaption}
+              disabled={generatingCaption}
+              className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded px-4 py-2 text-sm"
+            >
+              {generatingCaption ? 'Gerando...' : caption ? 'Regenerar legenda' : 'Gerar legenda'}
+            </button>
+            {draft.instagram_user_id && (
+              <button
+                onClick={handlePostInstagram}
+                disabled={posting || igPosted || !caption}
+                className="bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded px-4 py-2 text-sm"
+              >
+                {posting ? 'Postando...' : igPosted ? '✅ Postado' : '📸 Postar no Instagram'}
+              </button>
+            )}
+            {captionStatus && <span className="text-sm text-gray-400">{captionStatus}</span>}
+            {igStatus && <span className="text-sm text-gray-400">{igStatus}</span>}
           </div>
         </div>
       )}
