@@ -11,6 +11,7 @@ const { createAgent, getNextPosition, seedDefaultPipeline } = require('../agents
 const { generatePostUnico, generateCarouselImages, parseCarouselCards, generateNewsCarouselSlides, parseNewsCarouselSlides } = require('../services/imageGenerator');
 const { fetchOgImage } = require('../utils/ogImage');
 const { checkRateLimit } = require('../utils/rateLimiter');
+const { postSingleImage, postCarousel } = require('../services/instagramPublisher');
 
 const UPLOADS_DIR = path.join(__dirname, '../../uploads/images');
 
@@ -555,15 +556,16 @@ async function handleImageCallback(bot, query, tenant) {
       } catch {}
       const imgBuf = await generatePostUnico(postText, tenant?.branding, tenant?.gemini_api_key);
       await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
+      let localUrl = null;
       if (draft_id) {
         try {
-          const url = saveImageLocally(imgBuf, tenant.id, draft_id, 'post.png');
-          await supabase.from('content_drafts').update({ image_urls: [url] }).eq('id', draft_id);
+          localUrl = saveImageLocally(imgBuf, tenant.id, draft_id, 'post.png');
+          await supabase.from('content_drafts').update({ image_urls: [localUrl] }).eq('id', draft_id);
         } catch (upErr) {
           logger.warn('Image save locally failed', { error: upErr.message });
         }
       }
-      pendingCaptionFlows.set(chatIdStr, { format, final_content: sourceContent, draft_id });
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: sourceContent, draft_id, imageUrls: localUrl ? [localUrl] : [] });
       await bot.sendMessage(chatId, '📝 Quer a legenda desse post?', {
         reply_markup: {
           inline_keyboard: [[
@@ -607,7 +609,7 @@ async function handleImageCallback(bot, query, tenant) {
         await supabase.from('content_drafts').update({ image_urls: uploadedUrls }).eq('id', draft_id);
       }
       await bot.sendMessage(chatId, '✅ Carrossel gerado!');
-      pendingCaptionFlows.set(chatIdStr, { format, final_content: contentToUse, draft_id });
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: contentToUse, draft_id, imageUrls: uploadedUrls });
       await bot.sendMessage(chatId, '📝 Quer a legenda desse carrossel?', {
         reply_markup: {
           inline_keyboard: [[
@@ -653,7 +655,7 @@ async function handleImageCallback(bot, query, tenant) {
         await supabase.from('content_drafts').update({ image_urls: uploadedUrls }).eq('id', draft_id);
       }
       await bot.sendMessage(chatId, '✅ Carrossel de noticia gerado!');
-      pendingCaptionFlows.set(chatIdStr, { format, final_content: contentToUse, draft_id });
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: contentToUse, draft_id, imageUrls: uploadedUrls });
       await bot.sendMessage(chatId, '📝 Quer a legenda desse carrossel?', {
         reply_markup: {
           inline_keyboard: [[
@@ -1229,7 +1231,8 @@ async function handleCaptionCallback(bot, query, tenant) {
     return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente.');
   }
 
-  const { format, final_content } = pendingCaptionFlows.get(chatIdStr);
+  const pendingCaptionData = pendingCaptionFlows.get(chatIdStr);
+  const { format, final_content, imageUrls, draft_id: cDraftId } = pendingCaptionData;
   pendingCaptionFlows.delete(chatIdStr);
 
   await bot.sendMessage(chatId, '✍️ Gerando legenda com hashtags...');
@@ -1246,6 +1249,18 @@ async function handleCaptionCallback(bot, query, tenant) {
       { model: 'sonnet', maxTokens: 1024, geminiApiKey: tenant?.gemini_api_key }
     );
     await bot.sendMessage(chatId, caption);
+
+    if (tenant?.instagram_user_id && tenant?.instagram_token && imageUrls?.length) {
+      pendingCaptionFlows.set(chatIdStr, { format, final_content, draft_id: cDraftId, imageUrls, caption });
+      await bot.sendMessage(chatId, '📸 Postar no Instagram?', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Postar agora', callback_data: 'instagram:post' },
+            { text: '❌ Não', callback_data: 'instagram:skip' },
+          ]],
+        },
+      });
+    }
   } catch (err) {
     logger.error('Caption generation failed', { error: err.message });
     await bot.sendMessage(chatId, `❌ Erro ao gerar legenda: ${err.message}`);
@@ -1272,6 +1287,82 @@ async function handlePipeline(bot, msg, tenant) {
   }
 }
 
+async function handleInstagramCallback(bot, query, tenant) {
+  const chatId = query.message.chat.id;
+  const chatIdStr = String(chatId);
+  await bot.answerCallbackQuery(query.id);
+  await bot.editMessageReplyMarkup(
+    { inline_keyboard: [] },
+    { chat_id: chatId, message_id: query.message.message_id }
+  );
+
+  if (query.data === 'instagram:skip') {
+    pendingCaptionFlows.delete(chatIdStr);
+    return;
+  }
+
+  if (!pendingCaptionFlows.has(chatIdStr)) {
+    return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente para postar.');
+  }
+
+  const { format, imageUrls, caption } = pendingCaptionFlows.get(chatIdStr);
+  pendingCaptionFlows.delete(chatIdStr);
+
+  const userId = tenant.instagram_user_id;
+  const token = tenant.instagram_token;
+
+  if (!userId || !token) {
+    return bot.sendMessage(chatId, '❌ Instagram nao configurado. Use /instagram para configurar.');
+  }
+
+  await bot.sendMessage(chatId, '📸 Postando no Instagram...');
+
+  try {
+    let postId;
+    if (format === 'post_unico' || imageUrls.length === 1) {
+      postId = await postSingleImage(userId, token, imageUrls[0], caption);
+    } else {
+      postId = await postCarousel(userId, token, imageUrls, caption);
+    }
+    await bot.sendMessage(chatId, `✅ Postado no Instagram! ID: ${postId}`);
+  } catch (err) {
+    logger.error('Instagram post failed', { error: err.message });
+    await bot.sendMessage(chatId, `❌ Erro ao postar: ${err.message}`);
+  }
+}
+
+async function handleInstagram(bot, msg, tenant, args) {
+  const chatId = msg.chat.id;
+
+  if (!tenant) return bot.sendMessage(chatId, '❌ Tenant nao identificado.');
+
+  if (!args) {
+    const hasConfig = tenant.instagram_user_id && tenant.instagram_token;
+    return bot.sendMessage(
+      chatId,
+      hasConfig
+        ? `✅ Instagram configurado (User ID: ${tenant.instagram_user_id})\n\nPara atualizar:\n/instagram <user_id> <token>`
+        : '❌ Instagram nao configurado.\n\nUso: /instagram <user_id> <access_token>\n\nObtenha o token em: Meta Graph API Explorer'
+    );
+  }
+
+  const parts = args.split(' ');
+  if (parts.length < 2) {
+    return bot.sendMessage(chatId, 'Uso: /instagram <user_id> <access_token>');
+  }
+
+  const [instagram_user_id, instagram_token] = parts;
+  const tenantService = require('../tenant/tenantService');
+  await tenantService.updateTenant(tenant.id, { instagram_user_id, instagram_token });
+  tenant.instagram_user_id = instagram_user_id;
+  tenant.instagram_token = instagram_token;
+
+  const { setTenantCache } = require('./middleware');
+  setTenantCache(tenant.chat_id, tenant);
+
+  await bot.sendMessage(chatId, '✅ Instagram configurado com sucesso!');
+}
+
 module.exports = {
   handleStart,
   handleAgentes,
@@ -1290,6 +1381,8 @@ module.exports = {
   onCronResearchReady,
   handleCriarAgente,
   handlePipeline,
+  handleInstagramCallback,
+  handleInstagram,
   _setPendingCronFlow: (chatId, v) => v ? pendingCronFlows.set(String(chatId), v) : pendingCronFlows.delete(String(chatId)),
   _setPendingAgentFlow: (chatId, v) => v ? pendingAgentFlows.set(String(chatId), v) : pendingAgentFlows.delete(String(chatId)),
   _setPendingFormatFlow: (chatId, v) => v ? pendingFormatFlows.set(String(chatId), v) : pendingFormatFlows.delete(String(chatId)),
