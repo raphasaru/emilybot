@@ -8,7 +8,8 @@ const { runAgent } = require('../agents/agentRunner');
 const { logger } = require('../utils/logger');
 const cronManager = require('../scheduler/cronManager');
 const { createAgent, getNextPosition, seedDefaultPipeline } = require('../agents/agentFactory');
-const { generatePostUnico, generateCarouselImages, parseCarouselCards } = require('../services/imageGenerator');
+const { generatePostUnico, generateCarouselImages, parseCarouselCards, generateNewsCarouselSlides, parseNewsCarouselSlides } = require('../services/imageGenerator');
+const { fetchOgImage } = require('../utils/ogImage');
 const { checkRateLimit } = require('../utils/rateLimiter');
 
 const UPLOADS_DIR = path.join(__dirname, '../../uploads/images');
@@ -32,6 +33,9 @@ const FORMAT_BUTTONS = [
   ],
   [
     { text: '🎬 Reels', callback_data: 'format:reels_roteiro' },
+  ],
+  [
+    { text: '📰 Notícia', callback_data: 'format:carrossel_noticias' },
   ],
 ];
 
@@ -393,6 +397,23 @@ function extractCleanPreview(finalContent, format) {
     return finalContent;
   }
 
+  if (format === 'carrossel_noticias') {
+    const parsed = parseJson(finalContent);
+    if (parsed) {
+      const cards = Array.isArray(parsed.content) ? parsed.content : (Array.isArray(parsed) ? parsed : null);
+      if (cards) {
+        return cards
+          .map((c, i) => {
+            const title = c.headline || c.title || '';
+            const body = c.body || (c.items ? c.items.join(', ') : '') || '';
+            return `Slide ${i + 1} [${c.type}]: ${title}${body ? `\n${body}` : ''}`;
+          })
+          .join('\n\n');
+      }
+    }
+    return finalContent;
+  }
+
   if (format === 'thread') {
     const parsed = parseJson(finalContent);
     if (parsed) {
@@ -452,8 +473,8 @@ async function runContentAndSend(bot, chatId, topic, format, tenant) {
     const editLink = buildEditLink(result.draft_id);
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
-    if (['post_unico', 'carrossel'].includes(format)) {
-      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId });
+    if (['post_unico', 'carrossel', 'carrossel_noticias'].includes(format)) {
+      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId, sourceUrls: result.sourceUrls || [] });
       await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
         reply_markup: {
           inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
@@ -477,8 +498,8 @@ async function runResearchContentAndSend(bot, chatId, topic, format, researchTex
     const editLink = buildEditLink(result.draft_id);
     if (editLink) await bot.sendMessage(chatId, `✏️ Editar: ${editLink}`);
 
-    if (['post_unico', 'carrossel'].includes(format)) {
-      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId });
+    if (['post_unico', 'carrossel', 'carrossel_noticias'].includes(format)) {
+      pendingImageFlows.set(String(chatId), { format, final_content: result.final_content, draft_id: result.draft_id, chatId, sourceUrls: [] });
       await bot.sendMessage(chatId, '🎨 Quer gerar as imagens?', {
         reply_markup: {
           inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]],
@@ -506,7 +527,7 @@ async function handleImageCallback(bot, query, tenant) {
     return bot.sendMessage(chatId, '❌ Nenhum conteudo pendente para gerar imagem.');
   }
 
-  const { format, final_content, draft_id } = pendingImageFlows.get(chatIdStr);
+  const { format, final_content, draft_id, sourceUrls } = pendingImageFlows.get(chatIdStr);
   pendingImageFlows.delete(chatIdStr);
 
   if (format === 'post_unico') {
@@ -591,6 +612,59 @@ async function handleImageCallback(bot, query, tenant) {
     } catch (err) {
       logger.error('Carousel image failed', { error: err.message });
       await bot.sendMessage(chatId, `❌ Erro ao gerar carrossel: ${err.message}`);
+    }
+  }
+
+  if (format === 'carrossel_noticias') {
+    await bot.sendMessage(chatId, '📰 Gerando carrossel de noticia...');
+    try {
+      let contentToUse = final_content;
+      if (draft_id) {
+        const { data: freshDraft } = await supabase.from('content_drafts').select('final_content').eq('id', draft_id).single();
+        if (freshDraft?.final_content) contentToUse = freshDraft.final_content;
+      }
+
+      const { slides, sourceUrl } = parseNewsCarouselSlides(contentToUse);
+      await bot.sendMessage(chatId, `📋 ${slides.length} slides. Buscando imagem da fonte...`);
+
+      const urlToFetch = sourceUrl || sourceUrls?.[0]?.url || null;
+      let ogImageBuf = null;
+      if (urlToFetch) {
+        ogImageBuf = await fetchOgImage(urlToFetch);
+      }
+
+      await bot.sendMessage(chatId, ogImageBuf ? '🖼️ Imagem encontrada! Gerando slides...' : '⚡ Sem imagem da fonte. Gerando com fundo solido...');
+
+      const images = await generateNewsCarouselSlides(slides, tenant?.branding, ogImageBuf);
+      const uploadedUrls = [];
+      for (let i = 0; i < images.length; i++) {
+        const { buf, caption } = images[i];
+        await bot.sendPhoto(chatId, buf, { caption }, { filename: `news_${i + 1}.png`, contentType: 'image/png' });
+        if (draft_id) {
+          try {
+            const url = saveImageLocally(buf, tenant.id, draft_id, `news_${i + 1}.png`);
+            uploadedUrls.push(url);
+          } catch (upErr) {
+            logger.warn('News slide save failed', { error: upErr.message, index: i });
+          }
+        }
+      }
+      if (draft_id && uploadedUrls.length) {
+        await supabase.from('content_drafts').update({ image_urls: uploadedUrls }).eq('id', draft_id);
+      }
+      await bot.sendMessage(chatId, '✅ Carrossel de noticia gerado!');
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: contentToUse, draft_id });
+      await bot.sendMessage(chatId, '📝 Quer a legenda desse carrossel?', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Sim, gerar legenda', callback_data: 'caption:generate' },
+            { text: '❌ Não', callback_data: 'caption:skip' },
+          ]],
+        },
+      });
+    } catch (err) {
+      logger.error('News carousel failed', { error: err.message });
+      await bot.sendMessage(chatId, `❌ Erro ao gerar carrossel de noticia: ${err.message}`);
     }
   }
 }
@@ -687,6 +761,7 @@ async function handleFormatCallback(bot, query, tenant) {
     tweet: 'Tweet',
     thread: 'Thread',
     reels_roteiro: 'Reels',
+    carrossel_noticias: 'Carrossel Notícia',
   };
 
   await bot.editMessageText(
@@ -1015,8 +1090,8 @@ async function handleFreeMessage(bot, msg, tenant) {
       const editLink = buildEditLink(result.draft_id);
       if (editLink) await bot.sendMessage(msg.chat.id, `✏️ Editar: ${editLink}`);
 
-      if (['post_unico', 'carrossel'].includes(schedule.format)) {
-        pendingImageFlows.set(chatIdStr, { format: schedule.format, final_content: result.final_content, draft_id: result.draft_id, chatId: msg.chat.id });
+      if (['post_unico', 'carrossel', 'carrossel_noticias'].includes(schedule.format)) {
+        pendingImageFlows.set(chatIdStr, { format: schedule.format, final_content: result.final_content, draft_id: result.draft_id, chatId: msg.chat.id, sourceUrls: [] });
         await bot.sendMessage(msg.chat.id, '🎨 Quer gerar as imagens?', {
           reply_markup: { inline_keyboard: [[{ text: '🖼️ Gerar imagem', callback_data: 'image:generate' }]] },
         });
