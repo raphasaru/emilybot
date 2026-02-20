@@ -112,11 +112,11 @@ async function runResearch(topics, tenantKeys, format) {
   const input = `Tema: ${topics}${searchContext}`;
   const researchText = await runAgent(researcher.system_prompt, input, { geminiApiKey: tenantKeys?.geminiApiKey });
 
-  return { researchText, remainingAgents, sourceUrls: searchData?.urls || [] };
+  return { researchText, remainingAgents, sourceUrls: searchData?.urls || [], rawNewsText: searchData?.text || null };
 }
 
 // Runs redator + formatador on a chosen idea. Saves draft.
-async function runContentFromResearch(researchText, chosenIdea, format, remainingAgents, tenantKeys) {
+async function runContentFromResearch(researchText, chosenIdea, format, remainingAgents, tenantKeys, rawNewsText) {
   logger.info('Running content from research', { chosenIdea, format });
 
   const formatNotes = {
@@ -137,7 +137,11 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
   };
   const charLimitNote = formatNotes[format] || '';
 
-  let currentInput = `Ideia escolhida: ${chosenIdea}\n\nContexto de pesquisa:\n${researchText}\n\nFormato desejado: ${format}${charLimitNote}`;
+  const rawNewsBlock = (format === 'carrossel_noticias' && rawNewsText)
+    ? `\n\nNOTICIAS REAIS DO GOOGLE NEWS (use estes fatos):\n${rawNewsText}`
+    : '';
+
+  let currentInput = `Ideia escolhida: ${chosenIdea}\n\nContexto de pesquisa:\n${researchText}${rawNewsBlock}\n\nFormato desejado: ${format}${charLimitNote}`;
   const results = {};
 
   for (const agent of remainingAgents) {
@@ -173,7 +177,7 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
 async function runContentFlow(topic, format = 'post_unico', tenantKeys) {
   logger.info('Starting content flow', { topic, format });
 
-  const { researchText, remainingAgents, sourceUrls } = await runResearch(topic, tenantKeys, format);
+  const { researchText, remainingAgents, sourceUrls, rawNewsText } = await runResearch(topic, tenantKeys, format);
   const researchParsed = extractJsonFromText(researchText);
 
   const { draft_id, final_content } = await runContentFromResearch(
@@ -181,7 +185,8 @@ async function runContentFlow(topic, format = 'post_unico', tenantKeys) {
     researchParsed?.ideas?.[0]?.title || topic,
     format,
     remainingAgents,
-    tenantKeys
+    tenantKeys,
+    rawNewsText
   );
 
   return { draft_id, final_content, all_results: { pesquisador: researchText }, sourceUrls };
