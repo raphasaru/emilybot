@@ -331,8 +331,270 @@ function parseCarouselCards(finalContent) {
   throw new Error('Nao foi possivel extrair cards do conteudo do carrossel');
 }
 
+// --- News Carousel (carrossel_noticias) — canvas-based ---
+const NEWS_W = 1080;
+const NEWS_H = 1350;
+const NEWS_PAD = 60;
+const NEWS_FONT = 'Inter, "DejaVu Sans", sans-serif, "Color Emoji"';
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function newsBaseBg(ctx, branding) {
+  const bg = branding.secondary_color || '#1A1A2E';
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, NEWS_W, NEWS_H);
+  const grad = ctx.createLinearGradient(0, 0, 0, NEWS_H);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.3)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, NEWS_W, NEWS_H);
+}
+
+function newsAccentBar(ctx, branding) {
+  ctx.fillStyle = branding.primary_color || '#FF5722';
+  ctx.fillRect(0, 0, NEWS_W, 6);
+}
+
+function newsSlideIndicator(ctx, slideNum, total, branding) {
+  const dotR = 5;
+  const gap = 16;
+  const totalW = total * dotR * 2 + (total - 1) * gap;
+  let x = (NEWS_W - totalW) / 2;
+  const y = NEWS_H - 40;
+  for (let i = 0; i < total; i++) {
+    ctx.beginPath();
+    ctx.arc(x + dotR, y, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = i === slideNum ? (branding.primary_color || '#FF5722') : 'rgba(255,255,255,0.3)';
+    ctx.fill();
+    x += dotR * 2 + gap;
+  }
+}
+
+function newsBrandingFooter(ctx, branding) {
+  const handle = branding.username ? `@${branding.username.replace(/^@/, '')}` : (branding.display_name || 'EmilyBot');
+  ctx.font = `bold 24px ${NEWS_FONT}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.textAlign = 'right';
+  ctx.fillText(handle, NEWS_W - NEWS_PAD, NEWS_H - 60);
+  ctx.textAlign = 'left';
+}
+
+async function renderNewsCapa(slide, branding, ogImageBuf, total) {
+  const canvas = createCanvas(NEWS_W, NEWS_H);
+  const ctx = canvas.getContext('2d');
+
+  if (ogImageBuf) {
+    try {
+      const img = await loadImage(ogImageBuf);
+      const scale = Math.max(NEWS_W / img.width, NEWS_H * 0.65 / img.height);
+      const sw = img.width * scale;
+      const sh = img.height * scale;
+      ctx.drawImage(img, (NEWS_W - sw) / 2, 0, sw, sh);
+      const grad = ctx.createLinearGradient(0, 0, 0, NEWS_H);
+      grad.addColorStop(0, 'rgba(0,0,0,0.2)');
+      grad.addColorStop(0.5, 'rgba(0,0,0,0.6)');
+      grad.addColorStop(1, branding.secondary_color || '#1A1A2E');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, NEWS_W, NEWS_H);
+    } catch {
+      newsBaseBg(ctx, branding);
+    }
+  } else {
+    newsBaseBg(ctx, branding);
+  }
+
+  newsAccentBar(ctx, branding);
+
+  // "NOTICIA" badge
+  ctx.font = `bold 20px ${NEWS_FONT}`;
+  const badgeText = 'NOTICIA';
+  const badgeW = ctx.measureText(badgeText).width + 24;
+  drawRoundedRect(ctx, NEWS_PAD, NEWS_H * 0.55, badgeW, 34, 6);
+  ctx.fillStyle = branding.primary_color || '#FF5722';
+  ctx.fill();
+  ctx.font = `bold 20px ${NEWS_FONT}`;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(badgeText, NEWS_PAD + 12, NEWS_H * 0.55 + 24);
+
+  // Headline
+  ctx.font = `bold 48px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  const headlineLines = wrapTextCanvas(ctx, slide.headline || '', NEWS_W - NEWS_PAD * 2);
+  let y = NEWS_H * 0.55 + 70;
+  for (const line of headlineLines.slice(0, 4)) {
+    ctx.fillText(line, NEWS_PAD, y);
+    y += 58;
+  }
+
+  if (slide.source) {
+    ctx.font = `18px ${NEWS_FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText(`via ${slide.source}`, NEWS_PAD, y + 10);
+  }
+
+  newsBrandingFooter(ctx, branding);
+  newsSlideIndicator(ctx, 0, total, branding);
+
+  return canvas.encode('png');
+}
+
+async function renderNewsContentSlide(slide, branding, slideIdx, total) {
+  const canvas = createCanvas(NEWS_W, NEWS_H);
+  const ctx = canvas.getContext('2d');
+
+  newsBaseBg(ctx, branding);
+  newsAccentBar(ctx, branding);
+
+  const labels = { resumo: 'RESUMO', pontos: 'PONTOS-CHAVE', impacto: 'IMPACTO' };
+  ctx.font = `bold 18px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.primary_color || '#FF5722';
+  ctx.fillText(labels[slide.type] || slide.type?.toUpperCase() || '', NEWS_PAD, 80);
+
+  ctx.font = `bold 42px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  const titleLines = wrapTextCanvas(ctx, slide.title || '', NEWS_W - NEWS_PAD * 2);
+  let y = 140;
+  for (const line of titleLines.slice(0, 2)) {
+    ctx.fillText(line, NEWS_PAD, y);
+    y += 52;
+  }
+
+  y += 30;
+
+  if (slide.type === 'pontos' && Array.isArray(slide.items)) {
+    ctx.font = `32px ${NEWS_FONT}`;
+    for (const item of slide.items.slice(0, 6)) {
+      ctx.beginPath();
+      ctx.arc(NEWS_PAD + 8, y - 10, 6, 0, Math.PI * 2);
+      ctx.fillStyle = branding.primary_color || '#FF5722';
+      ctx.fill();
+      ctx.fillStyle = branding.text_color || '#FFFFFF';
+      const itemLines = wrapTextCanvas(ctx, item, NEWS_W - NEWS_PAD * 2 - 40);
+      for (const line of itemLines.slice(0, 2)) {
+        ctx.fillText(line, NEWS_PAD + 30, y);
+        y += 44;
+      }
+      y += 20;
+    }
+  } else if (slide.body) {
+    ctx.font = `30px ${NEWS_FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    const bodyLines = wrapTextCanvas(ctx, slide.body, NEWS_W - NEWS_PAD * 2);
+    for (const line of bodyLines.slice(0, 18)) {
+      ctx.fillText(line, NEWS_PAD, y);
+      y += 42;
+    }
+  }
+
+  newsBrandingFooter(ctx, branding);
+  newsSlideIndicator(ctx, slideIdx, total, branding);
+
+  return canvas.encode('png');
+}
+
+async function renderNewsCta(slide, branding, slideIdx, total) {
+  const canvas = createCanvas(NEWS_W, NEWS_H);
+  const ctx = canvas.getContext('2d');
+
+  newsBaseBg(ctx, branding);
+  newsAccentBar(ctx, branding);
+
+  ctx.font = `bold 46px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  const qLines = wrapTextCanvas(ctx, slide.question || '', NEWS_W - NEWS_PAD * 2);
+  let y = NEWS_H * 0.35;
+  for (const line of qLines.slice(0, 3)) {
+    ctx.textAlign = 'center';
+    ctx.fillText(line, NEWS_W / 2, y);
+    y += 58;
+  }
+
+  if (slide.action) {
+    y += 30;
+    ctx.font = `28px ${NEWS_FONT}`;
+    ctx.fillStyle = branding.primary_color || '#FF5722';
+    ctx.textAlign = 'center';
+    ctx.fillText(slide.action, NEWS_W / 2, y);
+  }
+
+  ctx.textAlign = 'left';
+
+  y += 80;
+  const name = branding.display_name || 'EmilyBot';
+  const handle = branding.username ? `@${branding.username.replace(/^@/, '')}` : '';
+  ctx.font = `bold 28px ${NEWS_FONT}`;
+  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  ctx.textAlign = 'center';
+  ctx.fillText(name, NEWS_W / 2, y);
+  if (handle) {
+    ctx.font = `22px ${NEWS_FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText(handle, NEWS_W / 2, y + 34);
+  }
+
+  ctx.textAlign = 'left';
+  newsSlideIndicator(ctx, slideIdx, total, branding);
+
+  return canvas.encode('png');
+}
+
+async function generateNewsCarouselSlides(slides, branding = {}, ogImageBuf = null) {
+  logger.info('Generating news carousel slides', { count: slides.length });
+  const total = slides.length;
+  const results = [];
+
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    let buf;
+
+    if (slide.type === 'capa') {
+      buf = await renderNewsCapa(slide, branding, ogImageBuf, total);
+    } else if (slide.type === 'cta') {
+      buf = await renderNewsCta(slide, branding, i, total);
+    } else {
+      buf = await renderNewsContentSlide(slide, branding, i, total);
+    }
+
+    results.push({ buf, caption: `${i + 1}/${total}` });
+  }
+
+  return results;
+}
+
+function parseNewsCarouselSlides(finalContent) {
+  try {
+    const jsonStr = finalContent.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const parsed = JSON.parse(jsonStr);
+    const content = parsed.content;
+    if (Array.isArray(content)) return { slides: content, sourceUrl: parsed.source_url || null };
+    if (typeof content === 'string') return { slides: JSON.parse(content), sourceUrl: parsed.source_url || null };
+  } catch {}
+
+  const match = finalContent.match(/\[[\s\S]*\]/);
+  if (match) {
+    try {
+      return { slides: JSON.parse(match[0]), sourceUrl: null };
+    } catch {}
+  }
+  throw new Error('Nao foi possivel extrair slides do conteudo de noticias');
+}
+
 module.exports = {
   generatePostUnico,
   generateCarouselImages,
   parseCarouselCards,
+  generateNewsCarouselSlides,
+  parseNewsCarouselSlides,
 };
