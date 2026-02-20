@@ -9,6 +9,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.final_content !== undefined) updates.final_content = body.final_content;
   if (body.topic !== undefined) updates.topic = body.topic;
+  if (body.caption !== undefined) updates.caption = body.caption;
 
   const supabase = getSupabase();
   const { error } = await supabase
