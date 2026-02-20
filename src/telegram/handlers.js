@@ -631,28 +631,11 @@ async function handleImageCallback(bot, query, tenant) {
         if (freshDraft?.final_content) contentToUse = freshDraft.final_content;
       }
 
-      const { slides, sourceUrl } = parseNewsCarouselSlides(contentToUse);
+      const { slides } = parseNewsCarouselSlides(contentToUse);
 
-      // Collect URLs to fetch og:images from (source_url from content + Brave results)
-      const urlsToFetch = [];
-      if (sourceUrl) urlsToFetch.push(sourceUrl);
-      for (const s of (sourceUrls || [])) {
-        if (s.url && !urlsToFetch.includes(s.url)) urlsToFetch.push(s.url);
-      }
+      await bot.sendMessage(chatId, `📋 ${slides.length} slides. Gerando...`);
 
-      await bot.sendMessage(chatId, `📋 ${slides.length} slides. Buscando imagens de ${urlsToFetch.length} fonte(s)...`);
-
-      // Fetch og:images in parallel (max 5)
-      const ogResults = await Promise.all(
-        urlsToFetch.slice(0, 5).map((url) => fetchOgImage(url).catch(() => null))
-      );
-      const ogImages = ogResults.filter(Boolean);
-
-      await bot.sendMessage(chatId, ogImages.length
-        ? `🖼️ ${ogImages.length} imagem(ns) encontrada(s)! Gerando slides...`
-        : '⚡ Sem imagens das fontes. Gerando com fundo solido...');
-
-      const images = await generateNewsCarouselSlides(slides, tenant?.branding, ogImages);
+      const images = await generateNewsCarouselSlides(slides, tenant?.branding, null);
       const uploadedUrls = [];
       for (let i = 0; i < images.length; i++) {
         const { buf, caption } = images[i];
