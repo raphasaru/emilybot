@@ -466,6 +466,12 @@ async function runContentAndSend(bot, chatId, topic, format, tenant) {
   await bot.sendMessage(chatId, '🔄 Iniciando fluxo de criacao de conteudo...');
   try {
     const result = await runContentFlow(topic, format, mkTenantKeys(tenant));
+
+    if (result.sourceUrls?.length) {
+      const srcList = result.sourceUrls.map((s) => `- ${s.title} (${s.url})`).join('\n');
+      await bot.sendMessage(chatId, `🔗 Fontes pesquisadas:\n${srcList}`);
+    }
+
     await bot.sendMessage(chatId, `✅ Conteudo salvo (ID: ${result.draft_id || 'N/A'})`);
 
     await sendPreview(bot, chatId, extractCleanPreview(result.final_content || '', format));
