@@ -152,6 +152,7 @@ function mkTenantKeys(tenant) {
     geminiApiKey: tenant?.gemini_api_key,
     braveSearchKey: tenant?.brave_search_key,
     falKey: tenant?.fal_key,
+    apifyKey: tenant?.apify_key,
     tenantId: tenant?.id,
   };
 }

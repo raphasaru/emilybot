@@ -45,6 +45,36 @@ async function searchBrave(topic, braveSearchKey) {
   }
 }
 
+async function searchGoogleNews(topic, apifyKey) {
+  if (!apifyKey) {
+    logger.warn('APIFY_KEY not set — skipping Google News search');
+    return null;
+  }
+
+  const actorId = 'scrapestorm~google-news-scraper-fast-cheap-pay-per-results';
+  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${apifyKey}&timeout=60&memory=256`;
+
+  try {
+    const response = await axios.post(
+      url,
+      { keyword: topic, language: 'Portuguese', country: 'Brazil 🇧🇷', maxitems: 8, time_filter: 'Recent 🔥' },
+      { timeout: 70000 }
+    );
+
+    const items = Array.isArray(response.data) ? response.data : [];
+    if (!items.length) return null;
+
+    const urls = items.map((r) => ({ url: r.Link, title: r.Title }));
+    const text = items
+      .map((r) => `- ${r.Title} (${r['Source Name']}, ${r.Published_time || r.Date})\n  URL: ${r.Link}${r.Description ? '\n  ' + r.Description : ''}`)
+      .join('\n');
+    return { text, urls };
+  } catch (err) {
+    logger.warn('Google News (Apify) search failed', { error: err.message });
+    return null;
+  }
+}
+
 async function loadPipeline(tenantId) {
   let query = supabase
     .from('agents')
@@ -61,15 +91,22 @@ async function loadPipeline(tenantId) {
 }
 
 // Runs only the pesquisador (first agent). Returns research text + remaining agents.
-async function runResearch(topics, tenantKeys) {
-  logger.info('Running research phase', { topics });
+async function runResearch(topics, tenantKeys, format) {
+  logger.info('Running research phase', { topics, format });
 
   const pipeline = await loadPipeline(tenantKeys?.tenantId);
   const [researcher, ...remainingAgents] = pipeline;
 
-  const searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);
+  let searchData = null;
+  if (format === 'carrossel_noticias' && tenantKeys?.apifyKey) {
+    searchData = await searchGoogleNews(topics, tenantKeys.apifyKey);
+    if (!searchData) searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);
+  } else {
+    searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);
+  }
+
   const searchContext = searchData?.text
-    ? `\n\nContexto de tendencias atual (pesquisa web):\n${searchData.text}`
+    ? `\n\nContexto de noticias recentes (Google News):\n${searchData.text}`
     : '';
 
   const input = `Tema: ${topics}${searchContext}`;
@@ -136,7 +173,7 @@ async function runContentFromResearch(researchText, chosenIdea, format, remainin
 async function runContentFlow(topic, format = 'post_unico', tenantKeys) {
   logger.info('Starting content flow', { topic, format });
 
-  const { researchText, remainingAgents, sourceUrls } = await runResearch(topic, tenantKeys);
+  const { researchText, remainingAgents, sourceUrls } = await runResearch(topic, tenantKeys, format);
   const researchParsed = extractJsonFromText(researchText);
 
   const { draft_id, final_content } = await runContentFromResearch(

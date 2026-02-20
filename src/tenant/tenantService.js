@@ -11,6 +11,7 @@ function encryptKeys(data) {
     gemini_api_key: encrypt(data.gemini_api_key, ENC_KEY),
     brave_search_key: encrypt(data.brave_search_key, ENC_KEY),
     fal_key: encrypt(data.fal_key, ENC_KEY),
+    apify_key: data.apify_key ? encrypt(data.apify_key, ENC_KEY) : data.apify_key,
   };
 }
 
@@ -32,11 +33,12 @@ function decryptKeys(tenant) {
     gemini_api_key: safeDecrypt(tenant.gemini_api_key),
     brave_search_key: safeDecrypt(tenant.brave_search_key),
     fal_key: safeDecrypt(tenant.fal_key),
+    apify_key: safeDecrypt(tenant.apify_key),
   };
 }
 
-async function createTenant({ name, bot_token, chat_id, gemini_api_key, brave_search_key, fal_key, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash }) {
-  const encrypted = encryptKeys({ gemini_api_key, brave_search_key, fal_key });
+async function createTenant({ name, bot_token, chat_id, gemini_api_key, brave_search_key, fal_key, apify_key, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash }) {
+  const encrypted = encryptKeys({ gemini_api_key, brave_search_key, fal_key, apify_key });
   const { data, error } = await supabase
     .from('tenants')
     .insert({ name, bot_token, chat_id, ...encrypted, branding, emily_tone, owner_name, niche, specialization, dashboard_password_hash })
@@ -75,6 +77,7 @@ async function updateTenant(id, updates) {
   if (toUpdate.gemini_api_key) toUpdate.gemini_api_key = encrypt(toUpdate.gemini_api_key, ENC_KEY);
   if (toUpdate.brave_search_key) toUpdate.brave_search_key = encrypt(toUpdate.brave_search_key, ENC_KEY);
   if (toUpdate.fal_key) toUpdate.fal_key = encrypt(toUpdate.fal_key, ENC_KEY);
+  if (toUpdate.apify_key) toUpdate.apify_key = encrypt(toUpdate.apify_key, ENC_KEY);
 
   const { data, error } = await supabase
     .from('tenants')
