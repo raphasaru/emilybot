@@ -933,6 +933,7 @@ async function handleAjuda(bot, msg, tenant) {
     '/status — Status do sistema\n' +
     '/pipeline — Instalar agentes de conteudo\n' +
     '/branding — Ver ou alterar visual\n' +
+    '/instagram — Configurar conta do Instagram\n' +
     '/ajuda — Este menu',
     { parse_mode: 'MarkdownV2' }
   );
