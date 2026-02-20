@@ -26,7 +26,9 @@ for (const r of required) {
     console.error('  [--specialization "Instagram, gestão de agenda"] \\');
     console.error('  [--brave_key "BSK-..."] \\');
     console.error('  [--fal_key "fal-..."] \\');
-    console.error('  [--apify_key "apify_..."]');
+    console.error('  [--apify_key "apify_..."] \\');
+  console.error('  [--instagram_user_id "123456789"] \\');
+  console.error('  [--instagram_token "EAAxxxxx"]');
     process.exit(1);
   }
 }
@@ -42,6 +44,8 @@ for (const r of required) {
       brave_search_key: flags.brave_key || null,
       fal_key: flags.fal_key || null,
       apify_key: flags.apify_key || null,
+      instagram_user_id: flags.instagram_user_id || null,
+      instagram_token: flags.instagram_token || null,
       owner_name: flags.owner_name || null,
       niche: flags.niche || null,
       specialization: flags.specialization || null,
