@@ -1251,6 +1251,12 @@ async function handleCaptionCallback(bot, query, tenant) {
     );
     await bot.sendMessage(chatId, caption);
 
+    if (cDraftId) {
+      supabase.from('content_drafts').update({ caption }).eq('id', cDraftId).then(({ error }) => {
+        if (error) logger.warn('Failed to save caption to draft', { error: error.message });
+      });
+    }
+
     if (tenant?.instagram_user_id && tenant?.instagram_token && imageUrls?.length) {
       pendingCaptionFlows.set(chatIdStr, { format, final_content, draft_id: cDraftId, imageUrls, caption });
       await bot.sendMessage(chatId, '📸 Postar no Instagram?', {
