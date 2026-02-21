@@ -20,6 +20,8 @@ const {
   handlePipeline,
   handleInstagramCallback,
   handleInstagram,
+  handleInvite,
+  handleInvites,
 } = require('./handlers');
 const { logger } = require('../utils/logger');
 
@@ -98,6 +100,16 @@ function createBot(tenant) {
   bot.onText(/\/instagram(?:\s+(.+))?/, (msg, match) => {
     if (!guard(msg.chat.id)) return;
     handleInstagram(bot, msg, tenant, match?.[1]?.trim());
+  });
+
+  bot.onText(/\/invite$/, (msg) => {
+    if (!guard(msg.chat.id)) return;
+    handleInvite(bot, msg, tenant);
+  });
+
+  bot.onText(/\/invites/, (msg) => {
+    if (!guard(msg.chat.id)) return;
+    handleInvites(bot, msg, tenant);
   });
 
   // Inline button callbacks

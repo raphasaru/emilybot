@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { runContentFlow, runContentFromResearch, runResearch, loadPipeline } = require('../flows/contentCreation');
@@ -350,12 +351,16 @@ async function askForFormat(bot, chatId, topic, directText = null, contextText =
   );
 }
 
-function saveImageLocally(buf, tenantId, draftId, filename) {
-  const dir = path.join(UPLOADS_DIR, tenantId, draftId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, filename), buf);
-  const base = (process.env.EXTERNAL_URL || 'http://localhost:3000').replace(/\/$/, '');
-  return `${base}/images/${tenantId}/${draftId}/${filename}`;
+async function uploadImage(buf, tenantId, draftId, filename) {
+  const storagePath = `${tenantId}/${draftId}/${filename}`;
+  const { error } = await supabase.storage.from('draft-images').upload(storagePath, buf, {
+    contentType: 'image/png',
+    upsert: true,
+  });
+  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+  const { data } = supabase.storage.from('draft-images').getPublicUrl(storagePath);
+  logger.info('Image uploaded to storage', { publicUrl: data.publicUrl });
+  return data.publicUrl;
 }
 
 function buildEditLink(draftId) {
@@ -556,16 +561,16 @@ async function handleImageCallback(bot, query, tenant) {
       } catch {}
       const imgBuf = await generatePostUnico(postText, tenant?.branding, tenant?.gemini_api_key);
       await bot.sendPhoto(chatId, imgBuf, { caption: '📱 Post único gerado com IDV2' }, { filename: 'post.png', contentType: 'image/png' });
-      let localUrl = null;
+      let publicUrl = null;
       if (draft_id) {
         try {
-          localUrl = saveImageLocally(imgBuf, tenant.id, draft_id, 'post.png');
-          await supabase.from('content_drafts').update({ image_urls: [localUrl] }).eq('id', draft_id);
+          publicUrl = await uploadImage(imgBuf, tenant.id, draft_id, 'post.png');
+          await supabase.from('content_drafts').update({ image_urls: [publicUrl] }).eq('id', draft_id);
         } catch (upErr) {
-          logger.warn('Image save locally failed', { error: upErr.message });
+          logger.warn('Image upload failed', { error: upErr.message });
         }
       }
-      pendingCaptionFlows.set(chatIdStr, { format, final_content: sourceContent, draft_id, imageUrls: localUrl ? [localUrl] : [] });
+      pendingCaptionFlows.set(chatIdStr, { format, final_content: sourceContent, draft_id, imageUrls: publicUrl ? [publicUrl] : [] });
       await bot.sendMessage(chatId, '📝 Quer a legenda desse post?', {
         reply_markup: {
           inline_keyboard: [[
@@ -591,17 +596,17 @@ async function handleImageCallback(bot, query, tenant) {
       }
       const cards = parseCarouselCards(contentToUse);
       await bot.sendMessage(chatId, `📋 ${cards.length} cards encontrados. Gerando imagens...`);
-      const images = await generateCarouselImages(cards);
+      const images = await generateCarouselImages(cards, tenant.carousel_idv);
       const uploadedUrls = [];
       for (let i = 0; i < images.length; i++) {
         const { buf, caption } = images[i];
         await bot.sendPhoto(chatId, buf, { caption }, { filename: `card_${i + 1}.png`, contentType: 'image/png' });
         if (draft_id) {
           try {
-            const url = saveImageLocally(buf, tenant.id, draft_id, `card_${i + 1}.png`);
+            const url = await uploadImage(buf, tenant.id, draft_id, `card_${i + 1}.png`);
             uploadedUrls.push(url);
           } catch (upErr) {
-            logger.warn('Card save locally failed', { error: upErr.message, index: i });
+            logger.warn('Card upload failed', { error: upErr.message, index: i });
           }
         }
       }
@@ -644,10 +649,10 @@ async function handleImageCallback(bot, query, tenant) {
         await bot.sendPhoto(chatId, buf, { caption }, { filename: `news_${i + 1}.png`, contentType: 'image/png' });
         if (draft_id) {
           try {
-            const url = saveImageLocally(buf, tenant.id, draft_id, `news_${i + 1}.png`);
+            const url = await uploadImage(buf, tenant.id, draft_id, `news_${i + 1}.png`);
             uploadedUrls.push(url);
           } catch (upErr) {
-            logger.warn('News slide save failed', { error: upErr.message, index: i });
+            logger.warn('News slide upload failed', { error: upErr.message, index: i });
           }
         }
       }
@@ -1224,7 +1229,19 @@ async function handleCaptionCallback(bot, query, tenant) {
   );
 
   if (query.data === 'caption:skip') {
+    const skippedData = pendingCaptionFlows.get(chatIdStr);
     pendingCaptionFlows.delete(chatIdStr);
+    if (skippedData?.imageUrls?.length && tenant?.instagram_user_id && tenant?.instagram_token) {
+      pendingCaptionFlows.set(chatIdStr, { ...skippedData, caption: '' });
+      await bot.sendMessage(chatId, '📸 Postar no Instagram sem legenda?', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Postar agora', callback_data: 'instagram:post' },
+            { text: '❌ Não', callback_data: 'instagram:skip' },
+          ]],
+        },
+      });
+    }
     return;
   }
 
@@ -1315,8 +1332,11 @@ async function handleInstagramCallback(bot, query, tenant) {
   const { format, imageUrls, caption } = pendingCaptionFlows.get(chatIdStr);
   pendingCaptionFlows.delete(chatIdStr);
 
-  const userId = tenant.instagram_user_id;
-  const token = tenant.instagram_token;
+  // Fetch fresh + decrypted token from DB (may have been refreshed since bot started)
+  const { getTenantByChatId } = require('../tenant/tenantService');
+  const freshTenant = await getTenantByChatId(tenant.chat_id);
+  const userId = freshTenant?.instagram_user_id || tenant.instagram_user_id;
+  const token = freshTenant?.instagram_token || tenant.instagram_token;
 
   if (!userId || !token) {
     return bot.sendMessage(chatId, '❌ Instagram nao configurado. Use /instagram para configurar.');
@@ -1333,7 +1353,7 @@ async function handleInstagramCallback(bot, query, tenant) {
     }
     await bot.sendMessage(chatId, `✅ Postado no Instagram! ID: ${postId}`);
   } catch (err) {
-    logger.error('Instagram post failed', { error: err.message });
+    logger.error('Instagram post failed', { error: err.message, format, imageCount: imageUrls?.length, urls: imageUrls });
     await bot.sendMessage(chatId, `❌ Erro ao postar: ${err.message}`);
   }
 }
@@ -1370,6 +1390,68 @@ async function handleInstagram(bot, msg, tenant, args) {
   await bot.sendMessage(chatId, '✅ Instagram configurado com sucesso!');
 }
 
+async function handleInvite(bot, msg, tenant) {
+  const chatId = msg.chat.id;
+
+  // Check 24h active rule
+  const tenantCreated = new Date(tenant.created_at);
+  const now = new Date();
+  if (now - tenantCreated < 24 * 60 * 60 * 1000) {
+    return bot.sendMessage(chatId, '⏳ Você poderá convidar amigos após 24h de uso.');
+  }
+
+  // Count existing codes for this tenant
+  const { data: existing } = await supabase
+    .from('invite_codes')
+    .select('id')
+    .eq('tenant_id', tenant.id);
+
+  if (existing && existing.length >= 3) {
+    return bot.sendMessage(chatId, '🎫 Você já usou seus 3 convites. Use /invites pra ver o status.');
+  }
+
+  // Generate unique code
+  const code = 'EMB-' + crypto.randomBytes(4).toString('hex').slice(0, 6);
+
+  await supabase.from('invite_codes').insert({
+    tenant_id: tenant.id,
+    code,
+  });
+
+  const link = `https://emilybot.com.br?ref=${code}`;
+  bot.sendMessage(chatId,
+    `🎫 Convite gerado!\n\nCódigo: ${code}\nLink: ${link}\n\nEnvie este link para um amigo. Ele terá prioridade na fila de acesso.`
+  );
+}
+
+async function handleInvites(bot, msg, tenant) {
+  const chatId = msg.chat.id;
+
+  const { data: codes } = await supabase
+    .from('invite_codes')
+    .select('code, used_by, used_at, created_at')
+    .eq('tenant_id', tenant.id)
+    .order('created_at', { ascending: true });
+
+  if (!codes || codes.length === 0) {
+    return bot.sendMessage(chatId, 'Você ainda não gerou convites. Use /invite para criar um.');
+  }
+
+  let text = '🎫 Seus convites:\n\n';
+  for (let i = 0; i < codes.length; i++) {
+    const c = codes[i];
+    const status = c.used_by ? '✅ usado' : '🟢 disponível';
+    text += `${i + 1}. ${c.code} — ${status}\n`;
+  }
+
+  const remaining = 3 - codes.length;
+  if (remaining > 0) {
+    text += `\n${remaining} convite(s) restante(s). Use /invite para gerar.`;
+  }
+
+  bot.sendMessage(chatId, text);
+}
+
 module.exports = {
   handleStart,
   handleAgentes,
@@ -1390,6 +1472,8 @@ module.exports = {
   handlePipeline,
   handleInstagramCallback,
   handleInstagram,
+  handleInvite,
+  handleInvites,
   _setPendingCronFlow: (chatId, v) => v ? pendingCronFlows.set(String(chatId), v) : pendingCronFlows.delete(String(chatId)),
   _setPendingAgentFlow: (chatId, v) => v ? pendingAgentFlows.set(String(chatId), v) : pendingAgentFlows.delete(String(chatId)),
   _setPendingFormatFlow: (chatId, v) => v ? pendingFormatFlows.set(String(chatId), v) : pendingFormatFlows.delete(String(chatId)),
