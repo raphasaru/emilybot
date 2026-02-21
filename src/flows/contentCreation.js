@@ -98,15 +98,15 @@ async function runResearch(topics, tenantKeys, format) {
   const [researcher, ...remainingAgents] = pipeline;
 
   let searchData = null;
-  if (format === 'carrossel_noticias' && tenantKeys?.apifyKey) {
+  if (tenantKeys?.apifyKey) {
     searchData = await searchGoogleNews(topics, tenantKeys.apifyKey);
-    if (!searchData) searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);
-  } else {
+  }
+  if (!searchData) {
     searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);
   }
 
   const searchContext = searchData?.text
-    ? `\n\nContexto de noticias recentes (Google News):\n${searchData.text}`
+    ? `\n\nContexto de pesquisa web recente:\n${searchData.text}`
     : '';
 
   const input = `Tema: ${topics}${searchContext}`;
