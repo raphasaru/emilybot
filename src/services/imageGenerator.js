@@ -34,7 +34,11 @@ async function callRecraftImage(prompt) {
   const url = data.images?.[0]?.url;
   if (!url) throw new Error('fal.ai nao retornou imagem');
   const { data: imgData } = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-  return Buffer.from(imgData);
+  // fal.ai returns WebP — re-encode as PNG so IG API accepts the file
+  const img = await loadImage(Buffer.from(imgData));
+  const c = createCanvas(img.width, img.height);
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c.encode('png');
 }
 
 // IDV2: post_unico — canvas rendering (color emoji, pixel-perfect layout)
@@ -58,63 +62,14 @@ function wrapTextCanvas(ctx, text, maxWidth) {
   return lines;
 }
 
-// IDV1: carrossel — dark modern tech aesthetic
-const IDV1_BASE =
-  'Instagram carousel card, dark modern aesthetic, 3:4 rectangle format. ' +
-  'Deep black background with subtle dark purple gradient (#000 to #1a0030). ' +
-  'Bold white sans-serif typography. Purple and blue neon glow accents (#7B2FFF, #00BFFF, #00FFFF). ' +
-  'Premium tech style, minimal, clean, no clutter. ';
+// Default IDV loaded from .md file, overridable per tenant via carousel_idv column
+const DEFAULT_IDV_PATH = path.join(__dirname, '../../assets/idv/default-carousel.md');
+function getDefaultIdv() {
+  return fs.readFileSync(DEFAULT_IDV_PATH, 'utf-8').trim();
+}
 
-function buildCarouselCardPrompt(card) {
-  const base = IDV1_BASE;
-  const slide = `Bottom left corner: slide number "${card.slide}". `;
-
-  switch (card.type) {
-    case 'capa':
-      return base + `Large centered impact headline: "${card.title}". Purple glow behind text. ` + slide;
-
-    case 'conceito':
-      return (
-        base +
-        `Small badge label at top: "${card.label || 'CONCEITO'}". ` +
-        `Large centered title: "${card.title}". ` +
-        `Smaller subtitle below: "${card.body || ''}". ` +
-        slide
-      );
-
-    case 'dados':
-      return (
-        base +
-        `Small badge label at top: "${card.label || 'DADOS'}". ` +
-        `Very large metric number with neon glow: "${card.metric}". ` +
-        `Smaller context text below: "${card.context || ''}". ` +
-        slide
-      );
-
-    case 'comparacao':
-      return (
-        base +
-        'Two columns separated by a vertical purple glow divider. ' +
-        `Left column text: "${card.left}". Right column text: "${card.right}". ` +
-        slide
-      );
-
-    case 'cta':
-      return (
-        base +
-        `Large question text centered: "${card.question}". ` +
-        `Smaller action instruction below: "${card.action || ''}". Purple glow behind text. ` +
-        slide
-      );
-
-    default: // conteudo, etc.
-      return (
-        base +
-        `Title: "${card.title || ''}". ` +
-        `Body text: "${card.body || ''}". ` +
-        slide
-      );
-  }
+function buildCarouselCardPrompt(card, index, total, idvBase) {
+  return idvBase || getDefaultIdv();
 }
 
 async function loadProfilePic(profilePicUrl) {
@@ -301,13 +256,104 @@ async function generatePostUnico(text, branding = {}, geminiApiKey = null) {
   return canvas.encode('png');
 }
 
-async function generateCarouselImages(cards) {
-  logger.info('Generating carousel images', { count: cards.length });
+async function overlayCarouselText(bgBuffer, card) {
+  const W = 1080;
+  const H = 1350;
+  const PAD = 96;
+  const FONT = 'Inter, "DejaVu Sans", sans-serif, "Color Emoji"';
+
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  // Draw Recraft background, scaled to fill
+  const bg = await loadImage(bgBuffer);
+  const scale = Math.max(W / bg.width, H / bg.height);
+  const sw = bg.width * scale;
+  const sh = bg.height * scale;
+  ctx.drawImage(bg, (W - sw) / 2, (H - sh) / 2, sw, sh);
+
+  // Semi-transparent overlay for text readability
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, 0, W, H);
+
+  const badge = (card.badge || 'TECH').toUpperCase();
+  const headline = card.headline || card.title || '';
+  const body = card.body || '';
+
+  // Start layout from vertical center offset upward
+  // Pre-measure to vertically center the content block
+  ctx.font = `bold 78px ${FONT}`;
+  const headlineLines = wrapTextCanvas(ctx, headline, W - PAD * 2);
+  ctx.font = `42px ${FONT}`;
+  const bodyLines = wrapTextCanvas(ctx, body, W - PAD * 2).slice(0, 8);
+
+  const badgeH = 48;
+  const gap = 24;
+  const headlineH = headlineLines.length * 90;
+  const dividerH = 1;
+  const bodyH = bodyLines.length * 56;
+  const totalH = badgeH + gap + headlineH + gap + dividerH + gap + bodyH;
+  let y = Math.max(PAD, Math.round((H - totalH) / 2));
+
+  // Badge pill — purple gradient
+  ctx.font = `bold 26px ${FONT}`;
+  const badgeTextW = ctx.measureText(badge).width;
+  const pillW = badgeTextW + 40;
+  const pillH = badgeH;
+  const pillR = pillH / 2;
+  const grad = ctx.createLinearGradient(PAD, y, PAD + pillW, y);
+  grad.addColorStop(0, '#7B2FFF');
+  grad.addColorStop(1, '#5B1FCC');
+  drawRoundedRect(ctx, PAD, y, pillW, pillH, pillR);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'left';
+  ctx.fillText(badge, PAD + 20, y + 33);
+  y += pillH + gap;
+
+  // Headline — bold white
+  ctx.font = `bold 78px ${FONT}`;
+  ctx.fillStyle = '#FFFFFF';
+  for (const line of headlineLines) {
+    ctx.fillText(line, PAD, y + 72);
+    y += 90;
+  }
+  y += gap;
+
+  // Gradient divider — purple → cyan → transparent
+  const divGrad = ctx.createLinearGradient(PAD, y, W - PAD, y);
+  divGrad.addColorStop(0, '#7B2FFF');
+  divGrad.addColorStop(0.5, '#00FFFF');
+  divGrad.addColorStop(1, 'rgba(0,255,255,0)');
+  ctx.strokeStyle = divGrad;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD, y);
+  ctx.lineTo(W - PAD, y);
+  ctx.stroke();
+  y += dividerH + gap;
+
+  // Body text — lighter white, word-wrapped
+  ctx.font = `42px ${FONT}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  for (const line of bodyLines) {
+    ctx.fillText(line, PAD, y + 38);
+    y += 56;
+  }
+
+  return canvas.encode('png');
+}
+
+async function generateCarouselImages(cards, tenantIdv) {
+  const idvBase = tenantIdv || null; // falls back to default .md inside buildCarouselCardPrompt
+  logger.info('Generating carousel images (recraft)', { count: cards.length });
   const buffers = [];
-  for (const card of cards) {
-    const prompt = buildCarouselCardPrompt(card);
-    const buf = await callRecraftImage(prompt);
-    buffers.push({ buf, caption: card.slide });
+  for (let i = 0; i < cards.length; i++) {
+    const prompt = buildCarouselCardPrompt(cards[i], i, cards.length, idvBase);
+    const bgBuf = await callRecraftImage(prompt);
+    const buf = await overlayCarouselText(bgBuf, cards[i]);
+    buffers.push({ buf, caption: '' });
   }
   return buffers;
 }
@@ -336,6 +382,17 @@ const NEWS_W = 1080;
 const NEWS_H = 1350;
 const NEWS_PAD = 60;
 const NEWS_FONT = 'Inter, "DejaVu Sans", sans-serif, "Color Emoji"';
+const NEWS_BG_PATH = path.join(__dirname, '../../idv-noticias.png');
+
+let _newsBgCache = null;
+async function newsBaseBgImage(ctx) {
+  if (!_newsBgCache) _newsBgCache = await loadImage(NEWS_BG_PATH);
+  const img = _newsBgCache;
+  const scale = Math.max(NEWS_W / img.width, NEWS_H / img.height);
+  const sw = img.width * scale;
+  const sh = img.height * scale;
+  ctx.drawImage(img, (NEWS_W - sw) / 2, (NEWS_H - sh) / 2, sw, sh);
+}
 
 function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -351,21 +408,6 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function newsBaseBg(ctx, branding) {
-  const bg = branding.secondary_color || '#1A1A2E';
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, NEWS_W, NEWS_H);
-  const grad = ctx.createLinearGradient(0, 0, 0, NEWS_H);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.3)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, NEWS_W, NEWS_H);
-}
-
-function newsAccentBar(ctx, branding) {
-  ctx.fillStyle = branding.primary_color || '#FF5722';
-  ctx.fillRect(0, 0, NEWS_W, 6);
-}
 
 function newsSlideIndicator(ctx, slideNum, total, branding) {
   const label = `${slideNum + 1}/${total}`;
@@ -376,174 +418,151 @@ function newsSlideIndicator(ctx, slideNum, total, branding) {
   ctx.textAlign = 'left';
 }
 
-function newsBrandingFooter(ctx, branding) {
-  const handle = branding.username ? `@${branding.username.replace(/^@/, '')}` : (branding.display_name || 'EmilyBot');
-  ctx.font = `bold 24px ${NEWS_FONT}`;
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.textAlign = 'right';
-  ctx.fillText(handle, NEWS_W - NEWS_PAD, NEWS_H - 60);
-  ctx.textAlign = 'left';
-}
 
-async function renderNewsCapa(slide, branding, ogImageBuf, total) {
+async function renderNewsCapa(slide, branding, _ogImageBuf, total) {
   const canvas = createCanvas(NEWS_W, NEWS_H);
   const ctx = canvas.getContext('2d');
 
-  if (ogImageBuf) {
-    try {
-      const img = await loadImage(ogImageBuf);
-      const scale = Math.max(NEWS_W / img.width, NEWS_H * 0.65 / img.height);
-      const sw = img.width * scale;
-      const sh = img.height * scale;
-      ctx.drawImage(img, (NEWS_W - sw) / 2, 0, sw, sh);
-      const grad = ctx.createLinearGradient(0, 0, 0, NEWS_H);
-      grad.addColorStop(0, 'rgba(0,0,0,0.2)');
-      grad.addColorStop(0.5, 'rgba(0,0,0,0.6)');
-      grad.addColorStop(1, branding.secondary_color || '#1A1A2E');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, NEWS_W, NEWS_H);
-    } catch {
-      newsBaseBg(ctx, branding);
-    }
-  } else {
-    newsBaseBg(ctx, branding);
-  }
+  await newsBaseBgImage(ctx);
 
-  newsAccentBar(ctx, branding);
+  const accent = branding.primary_color || '#FF5722';
+  const textColor = branding.text_color || '#FFFFFF';
 
-  // "NOTICIA" badge
-  ctx.font = `bold 20px ${NEWS_FONT}`;
+  // Content block anchored at ~33% height
+  let y = Math.round(NEWS_H * 0.33);
+
+  // "NOTICIA" badge pill
+  ctx.font = `bold 22px ${NEWS_FONT}`;
   const badgeText = 'NOTICIA';
-  const badgeW = ctx.measureText(badgeText).width + 24;
-  drawRoundedRect(ctx, NEWS_PAD, NEWS_H * 0.55, badgeW, 34, 6);
-  ctx.fillStyle = branding.primary_color || '#FF5722';
+  const badgeW = ctx.measureText(badgeText).width + 32;
+  drawRoundedRect(ctx, NEWS_PAD, y, badgeW, 40, 8);
+  ctx.fillStyle = accent;
   ctx.fill();
-  ctx.font = `bold 20px ${NEWS_FONT}`;
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillText(badgeText, NEWS_PAD + 12, NEWS_H * 0.55 + 24);
+  ctx.fillText(badgeText, NEWS_PAD + 16, y + 28);
+  y += 60;
 
-  // Headline
-  ctx.font = `bold 48px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  // Headline — large, impactful
+  ctx.font = `bold 66px ${NEWS_FONT}`;
+  ctx.fillStyle = textColor;
   const headlineLines = wrapTextCanvas(ctx, slide.headline || '', NEWS_W - NEWS_PAD * 2);
-  let y = NEWS_H * 0.55 + 70;
   for (const line of headlineLines.slice(0, 4)) {
-    ctx.fillText(line, NEWS_PAD, y);
-    y += 58;
+    ctx.fillText(line, NEWS_PAD, y + 66);
+    y += 76;
   }
 
+  // Accent rule
+  y += 24;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(NEWS_PAD, y);
+  ctx.lineTo(NEWS_PAD + 100, y);
+  ctx.stroke();
+  y += 28;
+
+  // Source
   if (slide.source) {
-    ctx.font = `18px ${NEWS_FONT}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText(`via ${slide.source}`, NEWS_PAD, y + 10);
+    ctx.font = `22px ${NEWS_FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText(`via ${slide.source}`, NEWS_PAD, y + 22);
   }
 
-  newsBrandingFooter(ctx, branding);
   newsSlideIndicator(ctx, 0, total, branding);
 
   return canvas.encode('png');
 }
 
-async function renderNewsContentSlide(slide, branding, slideIdx, total, thumbBuf) {
+async function renderNewsContentSlide(slide, branding, slideIdx, total, _thumbBuf) {
   const canvas = createCanvas(NEWS_W, NEWS_H);
   const ctx = canvas.getContext('2d');
 
-  newsBaseBg(ctx, branding);
-  newsAccentBar(ctx, branding);
+  await newsBaseBgImage(ctx);
 
-  // Thumbnail strip at top if image available
-  let thumbH = 0;
-  if (thumbBuf) {
-    try {
-      const thumbImg = await loadImage(thumbBuf);
-      thumbH = 280;
-      const scale = Math.max(NEWS_W / thumbImg.width, thumbH / thumbImg.height);
-      const sw = thumbImg.width * scale;
-      const sh = thumbImg.height * scale;
-      ctx.drawImage(thumbImg, (NEWS_W - sw) / 2, 6, sw, sh);
-      // Dark overlay for readability
-      const grad = ctx.createLinearGradient(0, 6, 0, 6 + thumbH);
-      grad.addColorStop(0, 'rgba(0,0,0,0.1)');
-      grad.addColorStop(1, branding.secondary_color || '#1A1A2E');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 6, NEWS_W, thumbH);
-    } catch {
-      thumbH = 0;
-    }
-  }
-
-  // Pre-measure total content height for vertical centering
+  const accent = branding.primary_color || '#FF5722';
+  const textColor = branding.text_color || '#FFFFFF';
   const labels = { resumo: 'RESUMO', pontos: 'PONTOS-CHAVE', impacto: 'IMPACTO' };
-  const labelH = 18 + 20; // label font size + gap
-  ctx.font = `bold 42px ${NEWS_FONT}`;
+
+  // Pre-measure for vertical centering
+  // Label row: 16px text + 8px gap + 3px rule + 28px gap = 55px
+  const labelBlockH = 55;
+  ctx.font = `bold 52px ${NEWS_FONT}`;
   const titleLines = wrapTextCanvas(ctx, slide.title || '', NEWS_W - NEWS_PAD * 2).slice(0, 2);
-  const titleH = titleLines.length * 52;
-  const gapH = 30;
+  const titleH = titleLines.length * 64;
+  const gapH = 36;
 
   let bodyH = 0;
   let bodyLines = [];
   let itemsData = [];
 
   if (slide.type === 'pontos' && Array.isArray(slide.items)) {
-    ctx.font = `32px ${NEWS_FONT}`;
+    ctx.font = `34px ${NEWS_FONT}`;
     for (const item of slide.items.slice(0, 6)) {
-      const lines = wrapTextCanvas(ctx, item, NEWS_W - NEWS_PAD * 2 - 40).slice(0, 2);
+      const lines = wrapTextCanvas(ctx, item, NEWS_W - NEWS_PAD * 2 - 48).slice(0, 2);
       itemsData.push(lines);
-      bodyH += lines.length * 44 + 20;
+      bodyH += lines.length * 48 + 22;
     }
   } else if (slide.body) {
-    ctx.font = `30px ${NEWS_FONT}`;
-    bodyLines = wrapTextCanvas(ctx, slide.body, NEWS_W - NEWS_PAD * 2).slice(0, 18);
-    bodyH = bodyLines.length * 42;
+    ctx.font = `34px ${NEWS_FONT}`;
+    bodyLines = wrapTextCanvas(ctx, slide.body, NEWS_W - NEWS_PAD * 2).slice(0, 14);
+    bodyH = bodyLines.length * 48;
   }
 
-  const totalContentH = labelH + titleH + gapH + bodyH;
-  const reservedBottom = 80; // space for footer + indicator
-  const topOffset = thumbH ? thumbH + 6 : 0;
-  const availH = NEWS_H - reservedBottom - topOffset;
-  let y = Math.max(topOffset + NEWS_PAD, topOffset + (availH - totalContentH) / 2);
+  const totalContentH = labelBlockH + titleH + gapH + bodyH;
+  const reservedBottom = 80;
+  const availH = NEWS_H - reservedBottom;
+  let y = Math.max(NEWS_PAD * 2, (availH - totalContentH) / 2);
 
-  // Type label
-  ctx.font = `bold 18px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.primary_color || '#FF5722';
-  ctx.fillText(labels[slide.type] || slide.type?.toUpperCase() || '', NEWS_PAD, y + 18);
-  y += labelH;
+  // Type label — small caps style
+  ctx.font = `bold 16px ${NEWS_FONT}`;
+  ctx.fillStyle = accent;
+  ctx.fillText((labels[slide.type] || slide.type?.toUpperCase() || '').toUpperCase(), NEWS_PAD, y + 16);
+  y += 24;
 
-  // Title
-  ctx.font = `bold 42px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  // Accent rule under label
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(NEWS_PAD, y);
+  ctx.lineTo(NEWS_PAD + 60, y);
+  ctx.stroke();
+  y += 28;
+
+  // Title — large
+  ctx.font = `bold 52px ${NEWS_FONT}`;
+  ctx.fillStyle = textColor;
   for (const line of titleLines) {
-    ctx.fillText(line, NEWS_PAD, y + 42);
-    y += 52;
+    ctx.fillText(line, NEWS_PAD, y + 52);
+    y += 64;
   }
 
   y += gapH;
 
   // Body or items
   if (slide.type === 'pontos' && itemsData.length) {
-    ctx.font = `32px ${NEWS_FONT}`;
     for (const lines of itemsData) {
-      ctx.beginPath();
-      ctx.arc(NEWS_PAD + 8, y + 22, 6, 0, Math.PI * 2);
-      ctx.fillStyle = branding.primary_color || '#FF5722';
-      ctx.fill();
-      ctx.fillStyle = branding.text_color || '#FFFFFF';
+      // Filled square bullet
+      ctx.fillStyle = accent;
+      ctx.fillRect(NEWS_PAD, y + 14, 10, 10);
+      ctx.font = `34px ${NEWS_FONT}`;
+      ctx.fillStyle = textColor;
       for (const line of lines) {
-        ctx.fillText(line, NEWS_PAD + 30, y + 32);
-        y += 44;
+        ctx.fillText(line, NEWS_PAD + 26, y + 34);
+        y += 48;
       }
-      y += 20;
+      y += 22;
     }
   } else if (bodyLines.length) {
-    ctx.font = `30px ${NEWS_FONT}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = `34px ${NEWS_FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (const line of bodyLines) {
-      ctx.fillText(line, NEWS_PAD, y + 30);
-      y += 42;
+      ctx.fillText(line, NEWS_PAD, y + 34);
+      y += 48;
     }
   }
 
-  newsBrandingFooter(ctx, branding);
   newsSlideIndicator(ctx, slideIdx, total, branding);
 
   return canvas.encode('png');
@@ -553,40 +572,42 @@ async function renderNewsCta(slide, branding, slideIdx, total) {
   const canvas = createCanvas(NEWS_W, NEWS_H);
   const ctx = canvas.getContext('2d');
 
-  newsBaseBg(ctx, branding);
-  newsAccentBar(ctx, branding);
+  await newsBaseBgImage(ctx);
 
-  ctx.font = `bold 46px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.text_color || '#FFFFFF';
+  const accent = branding.primary_color || '#FF5722';
+  const textColor = branding.text_color || '#FFFFFF';
+
+  ctx.textAlign = 'center';
+
+  // Accent rule top
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(NEWS_W / 2 - 50, NEWS_H * 0.30);
+  ctx.lineTo(NEWS_W / 2 + 50, NEWS_H * 0.30);
+  ctx.stroke();
+
+  // Question — very large, centered
+  ctx.font = `bold 58px ${NEWS_FONT}`;
+  ctx.fillStyle = textColor;
   const qLines = wrapTextCanvas(ctx, slide.question || '', NEWS_W - NEWS_PAD * 2);
-  let y = NEWS_H * 0.35;
-  for (const line of qLines.slice(0, 3)) {
-    ctx.textAlign = 'center';
+  let y = NEWS_H * 0.30 + 80;
+  for (const line of qLines.slice(0, 4)) {
     ctx.fillText(line, NEWS_W / 2, y);
-    y += 58;
+    y += 70;
   }
 
   if (slide.action) {
-    y += 30;
-    ctx.font = `28px ${NEWS_FONT}`;
-    ctx.fillStyle = branding.primary_color || '#FF5722';
-    ctx.textAlign = 'center';
-    ctx.fillText(slide.action, NEWS_W / 2, y);
-  }
-
-  ctx.textAlign = 'left';
-
-  y += 80;
-  const name = branding.display_name || 'EmilyBot';
-  const handle = branding.username ? `@${branding.username.replace(/^@/, '')}` : '';
-  ctx.font = `bold 28px ${NEWS_FONT}`;
-  ctx.fillStyle = branding.text_color || '#FFFFFF';
-  ctx.textAlign = 'center';
-  ctx.fillText(name, NEWS_W / 2, y);
-  if (handle) {
-    ctx.font = `22px ${NEWS_FONT}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText(handle, NEWS_W / 2, y + 34);
+    y += 28;
+    // Pill button style
+    ctx.font = `bold 30px ${NEWS_FONT}`;
+    const actionW = ctx.measureText(slide.action).width + 48;
+    drawRoundedRect(ctx, (NEWS_W - actionW) / 2, y, actionW, 56, 28);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(slide.action, NEWS_W / 2, y + 38);
   }
 
   ctx.textAlign = 'left';
@@ -595,29 +616,21 @@ async function renderNewsCta(slide, branding, slideIdx, total) {
   return canvas.encode('png');
 }
 
-async function generateNewsCarouselSlides(slides, branding = {}, ogImages = null) {
-  // ogImages: Buffer (legacy) or Buffer[] (multi-image)
-  const imgArray = Array.isArray(ogImages) ? ogImages : (ogImages ? [ogImages] : []);
-  logger.info('Generating news carousel slides', { count: slides.length, images: imgArray.length });
+async function generateNewsCarouselSlides(slides, branding = {}, _ogImages = null) {
+  logger.info('Generating news carousel slides', { count: slides.length });
   const total = slides.length;
   const results = [];
-
-  // Distribute images: first → capa, rest → content slides in order
-  let contentImgIdx = 0;
 
   for (let i = 0; i < slides.length; i++) {
     const slide = slides[i];
     let buf;
 
     if (slide.type === 'capa') {
-      buf = await renderNewsCapa(slide, branding, imgArray[0] || null, total);
+      buf = await renderNewsCapa(slide, branding, null, total);
     } else if (slide.type === 'cta') {
       buf = await renderNewsCta(slide, branding, i, total);
     } else {
-      // Content slides get remaining images as thumbnails
-      const thumbBuf = imgArray[1 + contentImgIdx] || null;
-      contentImgIdx++;
-      buf = await renderNewsContentSlide(slide, branding, i, total, thumbBuf);
+      buf = await renderNewsContentSlide(slide, branding, i, total, null);
     }
 
     results.push({ buf, caption: `${i + 1}/${total}` });
