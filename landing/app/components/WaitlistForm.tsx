@@ -3,11 +3,13 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
+import { useReveal } from '../hooks/useReveal';
 
 type FormState = 'idle' | 'submitting' | 'success' | 'error';
 
 function WaitlistFormInner() {
   const searchParams = useSearchParams();
+  const ref = useReveal();
   const [refCode, setRefCode] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -16,8 +18,8 @@ function WaitlistFormInner() {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    const ref = searchParams.get('ref');
-    if (ref) setRefCode(ref);
+    const r = searchParams.get('ref');
+    if (r) setRefCode(r);
   }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -28,7 +30,6 @@ function WaitlistFormInner() {
     try {
       let validRef: string | null = null;
 
-      // Validate ref code if present
       if (refCode) {
         const { data: code } = await supabase
           .from('invite_codes')
@@ -37,14 +38,13 @@ function WaitlistFormInner() {
           .single();
 
         if (code && code.used_by) {
-          setErrorMsg('Este código de convite já foi utilizado');
+          setErrorMsg('Este codigo de convite ja foi utilizado');
           setFormState('error');
           return;
         }
         if (code) validRef = code.code;
       }
 
-      // Insert lead
       const { data: lead, error: insertError } = await supabase
         .from('waitlist_leads')
         .insert({
@@ -59,14 +59,13 @@ function WaitlistFormInner() {
 
       if (insertError) {
         if (insertError.code === '23505') {
-          setErrorMsg('Este email já está cadastrado');
+          setErrorMsg('Este email ja esta cadastrado');
           setFormState('error');
           return;
         }
         throw insertError;
       }
 
-      // Mark invite code as used
       if (validRef && lead) {
         await supabase
           .from('invite_codes')
@@ -83,16 +82,30 @@ function WaitlistFormInner() {
 
   if (formState === 'success') {
     return (
-      <section id="waitlist" className="py-24 px-6">
+      <section id="waitlist" className="py-28 px-6" ref={ref}>
         <div className="max-w-md mx-auto text-center">
-          <div className="rounded-2xl border border-brand-border bg-brand-card p-10">
-            <div className="text-brand-purple mb-4">
-              <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <div className="reveal rounded-2xl glass p-10">
+            <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-gradient-to-br from-accent-violet/20 to-accent-cyan/10 flex items-center justify-center">
+              <svg
+                className="w-8 h-8 text-accent-cyan"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
             </div>
-            <h3 className="font-display text-2xl font-bold mb-3">Você está na lista!</h3>
-            <p className="text-brand-muted">Avisaremos quando sua vez chegar.</p>
+            <h3 className="font-display text-2xl font-bold mb-3">
+              Voce esta na lista!
+            </h3>
+            <p className="text-text-muted leading-relaxed">
+              Avisaremos quando sua vez chegar. Fique de olho no seu email.
+            </p>
           </div>
         </div>
       </section>
@@ -100,72 +113,107 @@ function WaitlistFormInner() {
   }
 
   return (
-    <section id="waitlist" className="py-24 px-6">
-      <div className="max-w-md mx-auto text-center">
-        <h2 className="font-display text-3xl sm:text-4xl font-bold mb-4">
-          Garanta seu acesso antecipado
-        </h2>
-        <p className="text-brand-muted mb-10">
-          Deixe seus dados e avisaremos quando sua vez chegar
-        </p>
+    <section id="waitlist" className="py-28 px-6 relative" ref={ref}>
+      {/* Background glow */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-accent-violet/[0.04] blur-[120px] pointer-events-none" />
+
+      <div className="relative max-w-md mx-auto">
+        <div className="text-center mb-10">
+          <p className="reveal text-sm font-medium uppercase tracking-[0.2em] text-accent-violet mb-4">
+            Lista de espera
+          </p>
+          <h2 className="reveal font-display text-3xl sm:text-4xl font-bold tracking-tight mb-4">
+            Garanta seu acesso antecipado
+          </h2>
+          <p className="reveal text-text-muted">
+            Deixe seus dados e avisaremos quando sua vez chegar
+          </p>
+        </div>
 
         {refCode && (
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-brand-purple/30 bg-brand-purple/10 mb-6">
-            <span className="w-2 h-2 rounded-full bg-brand-purple" />
-            <span className="text-sm text-brand-purple font-medium">Convite: {refCode}</span>
+          <div className="reveal flex justify-center mb-6">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent-violet/10 border border-accent-violet/20">
+              <span className="w-2 h-2 rounded-full bg-accent-violet" />
+              <span className="text-sm text-accent-violet font-medium">
+                Convite: {refCode}
+              </span>
+            </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="rounded-2xl border border-brand-border bg-brand-card p-8 text-left space-y-5">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium mb-1.5">Nome</label>
-            <input
-              id="name"
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg bg-brand-dark border border-brand-border text-white placeholder:text-brand-muted/50 focus:border-brand-purple focus:outline-none transition-colors"
-              placeholder="Seu nome"
-            />
+        <form
+          onSubmit={handleSubmit}
+          className="reveal gradient-border rounded-2xl"
+        >
+          <div className="rounded-2xl bg-surface-raised p-8 space-y-5">
+            <div>
+              <label
+                htmlFor="wl-name"
+                className="block text-sm font-medium mb-2 text-text-muted"
+              >
+                Nome
+              </label>
+              <input
+                id="wl-name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-xl bg-surface border border-surface-border text-text placeholder:text-text-subtle focus:border-accent-violet/50 focus:ring-1 focus:ring-accent-violet/20 focus:outline-none transition-all duration-300"
+                placeholder="Seu nome"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="wl-email"
+                className="block text-sm font-medium mb-2 text-text-muted"
+              >
+                Email
+              </label>
+              <input
+                id="wl-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-xl bg-surface border border-surface-border text-text placeholder:text-text-subtle focus:border-accent-violet/50 focus:ring-1 focus:ring-accent-violet/20 focus:outline-none transition-all duration-300"
+                placeholder="seu@email.com"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="wl-instagram"
+                className="block text-sm font-medium mb-2 text-text-muted"
+              >
+                Instagram{' '}
+                <span className="text-text-subtle text-xs">(opcional)</span>
+              </label>
+              <input
+                id="wl-instagram"
+                type="text"
+                value={instagram}
+                onChange={(e) => setInstagram(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-xl bg-surface border border-surface-border text-text placeholder:text-text-subtle focus:border-accent-violet/50 focus:ring-1 focus:ring-accent-violet/20 focus:outline-none transition-all duration-300"
+                placeholder="@seuuser"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={formState === 'submitting'}
+              className="btn-glow w-full py-4 rounded-xl bg-gradient-to-r from-accent-violet to-accent-indigo text-white font-semibold text-lg transition-all duration-300 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              {formState === 'submitting'
+                ? 'Enviando...'
+                : 'Garantir minha vaga'}
+            </button>
+
+            {formState === 'error' && (
+              <p className="text-red-400 text-sm text-center">{errorMsg}</p>
+            )}
           </div>
-
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium mb-1.5">Email</label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg bg-brand-dark border border-brand-border text-white placeholder:text-brand-muted/50 focus:border-brand-purple focus:outline-none transition-colors"
-              placeholder="seu@email.com"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="instagram" className="block text-sm font-medium mb-1.5">Instagram <span className="text-brand-muted text-xs">(opcional)</span></label>
-            <input
-              id="instagram"
-              type="text"
-              value={instagram}
-              onChange={(e) => setInstagram(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg bg-brand-dark border border-brand-border text-white placeholder:text-brand-muted/50 focus:border-brand-purple focus:outline-none transition-colors"
-              placeholder="@seuuser"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={formState === 'submitting'}
-            className="w-full py-4 rounded-full bg-brand-purple text-white font-semibold text-lg transition-all duration-300 hover:bg-brand-purple-dark hover:shadow-[0_0_40px_rgba(167,139,250,0.3)] disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {formState === 'submitting' ? 'Enviando...' : 'Garantir minha vaga'}
-          </button>
-
-          {formState === 'error' && (
-            <p className="text-red-400 text-sm text-center">{errorMsg}</p>
-          )}
         </form>
       </div>
     </section>
@@ -174,21 +222,20 @@ function WaitlistFormInner() {
 
 export default function WaitlistForm() {
   return (
-    <Suspense fallback={
-      <section id="waitlist" className="py-24 px-6">
-        <div className="max-w-md mx-auto text-center">
-          <h2 className="font-display text-3xl sm:text-4xl font-bold mb-4">
-            Garanta seu acesso antecipado
-          </h2>
-          <p className="text-brand-muted mb-10">
-            Deixe seus dados e avisaremos quando sua vez chegar
-          </p>
-          <div className="rounded-2xl border border-brand-border bg-brand-card p-8">
-            <div className="h-64 animate-pulse rounded-lg bg-brand-border/20" />
+    <Suspense
+      fallback={
+        <section id="waitlist" className="py-28 px-6">
+          <div className="max-w-md mx-auto text-center">
+            <h2 className="font-display text-3xl font-bold mb-4">
+              Garanta seu acesso antecipado
+            </h2>
+            <div className="rounded-2xl bg-surface-raised border border-surface-border p-8">
+              <div className="h-64 animate-pulse rounded-xl bg-surface-overlay" />
+            </div>
           </div>
-        </div>
-      </section>
-    }>
+        </section>
+      }
+    >
       <WaitlistFormInner />
     </Suspense>
   );
