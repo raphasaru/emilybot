@@ -1,5 +1,8 @@
 'use client';
 
+import Mascot from './Mascot';
+import MascotAvatar from './MascotAvatar';
+
 export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center overflow-hidden">
@@ -9,9 +12,17 @@ export default function Hero() {
       <div className="absolute top-[40%] right-[20%] w-[300px] h-[300px] rounded-full bg-accent-cyan/4 blur-[100px] pointer-events-none" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 pt-20 sm:pt-32 pb-16 sm:pb-20 w-full">
-        <div className="grid lg:grid-cols-[1fr,auto] gap-10 lg:gap-16 items-center">
+        {/* Mobile mascot — first element */}
+        <div
+          className="flex lg:hidden justify-center opacity-0 animate-fade-up mb-2"
+          style={{ animationDelay: '0ms' }}
+        >
+          <Mascot className="w-[180px] h-[180px] sm:w-[220px] sm:h-[220px]" />
+        </div>
+
+        <div className="grid lg:grid-cols-[1fr,auto,auto] gap-10 lg:gap-8 items-center">
           {/* Left — Copy */}
-          <div className="max-w-2xl text-center lg:text-left mx-auto lg:mx-0">
+          <div className="max-w-xl text-center lg:text-left mx-auto lg:mx-0">
             <div
               className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full glass mb-8 opacity-0 animate-fade-up"
               style={{ animationDelay: '0ms' }}
@@ -76,6 +87,14 @@ export default function Hero() {
             </div>
           </div>
 
+          {/* Center — Mascot (desktop: between text & chat) */}
+          <div
+            className="hidden lg:flex justify-center opacity-0 animate-fade-up"
+            style={{ animationDelay: '350ms' }}
+          >
+            <Mascot className="w-[200px] h-[200px] xl:w-[240px] xl:h-[240px]" />
+          </div>
+
           {/* Right — Mock Telegram conversation */}
           <div
             className="opacity-0 animate-fade-up flex justify-center lg:justify-end"
@@ -85,20 +104,8 @@ export default function Hero() {
               <div className="w-[280px] sm:w-[320px] rounded-3xl bg-surface-raised border border-surface-border overflow-hidden shadow-2xl shadow-accent-violet/5">
                 {/* Telegram header */}
                 <div className="bg-surface-overlay px-4 py-3 flex items-center gap-3 border-b border-surface-border">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-accent-violet to-accent-indigo flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 text-white"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
-                      />
-                    </svg>
+                  <div className="w-11 h-11 rounded-full bg-surface overflow-hidden flex items-center justify-center">
+                    <MascotAvatar className="w-14 h-14 -mb-1" />
                   </div>
                   <div>
                     <div className="text-sm font-semibold">EmilyBot</div>
