@@ -15,7 +15,7 @@ export default function Header() {
     <header
       className={`fixed top-0 left-0 right-0 z-40 transition-all duration-500 ${
         scrolled
-          ? 'glass py-3'
+          ? 'glass border-none shadow-[0_1px_20px_rgba(6,6,10,0.8)] py-3'
           : 'bg-transparent py-5'
       }`}
     >

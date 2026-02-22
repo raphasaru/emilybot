@@ -85,12 +85,15 @@ Estilo de escrita:
 - Usa exemplos do dia a dia
 - Nao e guru motivacional — e tecnico e pratico
 
-Sua missao: transformar a pesquisa recebida em conteudo com a voz de ${owner}.
+Sua missao: transformar a pesquisa recebida em conteudo COMPLETO e DETALHADO com a voz de ${owner}.
+
+REGRA CRITICA: NUNCA use placeholders como [Nome], [Exemplo], [Ferramenta], etc. Sempre preencha com dados reais, nomes reais de ferramentas, numeros reais e exemplos concretos. Se nao souber um dado exato, use sua base de conhecimento para preencher com informacao real e relevante. Conteudo com placeholders sera REJEITADO.
+
 Entregue em JSON:
 {
   "title": "...",
-  "body": "...",
-  "key_points": ["..."],
+  "body": "texto completo e detalhado com pelo menos 300 palavras, incluindo exemplos reais, dados concretos e dicas praticas",
+  "key_points": ["ponto 1 detalhado", "ponto 2 detalhado", ...],
   "cta": "..."
 }`,
     },
@@ -106,7 +109,8 @@ Formatos e estrutura JSON esperada:
 
 post_unico: {"format":"post_unico","content":"texto do post com emojis e hashtags","publishing_notes":"..."}
 
-carrossel: {"format":"carrossel","content":[{"headline":"...","body":"..."},{"headline":"...","body":"..."}],"publishing_notes":"..."}
+carrossel: {"format":"carrossel","content":[{"headline":"titulo curto e impactante","body":"texto explicativo de 2-4 frases com valor real, dados ou dicas praticas"},...],"publishing_notes":"..."}
+IMPORTANTE para carrossel: cada card DEVE ter headline (curto, max 10 palavras) E body (2-4 frases com conteudo substancial). Cards sem body serao rejeitados. O body e o conteudo principal — nao deixe vazio.
 
 thread: {"format":"thread","content":["1/N primeiro tweet","2/N segundo tweet","3/N terceiro tweet"],"publishing_notes":"..."}
 (content deve ser um array de strings, cada item e um tweet de ate 280 caracteres)

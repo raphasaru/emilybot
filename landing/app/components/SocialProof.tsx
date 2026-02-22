@@ -1,10 +1,10 @@
 'use client';
 
-import { useReveal } from '../hooks/useReveal';
+import { useReveal } from '../../lib/useReveal';
 
 const stats = [
-  { value: '50+', label: 'Conteudos gerados no beta' },
-  { value: '< 30s', label: 'Tempo medio por conteudo' },
+  { value: '50+', label: 'Conteúdos gerados no beta' },
+  { value: '< 30s', label: 'Tempo médio por conteúdo' },
   { value: '5', label: 'Formatos diferentes' },
 ];
 
@@ -12,7 +12,7 @@ export default function SocialProof() {
   const ref = useReveal();
 
   return (
-    <section className="py-20 px-6" ref={ref}>
+    <section className="py-12 sm:py-20 px-6" ref={ref}>
       <div className="max-w-4xl mx-auto">
         <div className="reveal rounded-2xl glass p-8 sm:p-12">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-4">

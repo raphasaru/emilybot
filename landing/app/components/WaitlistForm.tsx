@@ -1,18 +1,20 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
-import { useReveal } from '../hooks/useReveal';
+import { useReveal } from '../../lib/useReveal';
 
 type FormState = 'idle' | 'submitting' | 'success' | 'error';
 
 function WaitlistFormInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const ref = useReveal();
   const [refCode, setRefCode] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
   const [instagram, setInstagram] = useState('');
   const [formState, setFormState] = useState<FormState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -38,7 +40,7 @@ function WaitlistFormInner() {
           .single();
 
         if (code && code.used_by) {
-          setErrorMsg('Este codigo de convite ja foi utilizado');
+          setErrorMsg('Este código de convite já foi utilizado');
           setFormState('error');
           return;
         }
@@ -50,6 +52,7 @@ function WaitlistFormInner() {
         .insert({
           name,
           email,
+          whatsapp,
           instagram: instagram || null,
           priority: !!validRef,
           invite_code: validRef || null,
@@ -59,7 +62,7 @@ function WaitlistFormInner() {
 
       if (insertError) {
         if (insertError.code === '23505') {
-          setErrorMsg('Este email ja esta cadastrado');
+          setErrorMsg('Este e-mail já está cadastrado');
           setFormState('error');
           return;
         }
@@ -73,47 +76,16 @@ function WaitlistFormInner() {
           .eq('code', validRef);
       }
 
-      setFormState('success');
+      router.push('/obrigado');
+      return;
     } catch {
       setErrorMsg('Algo deu errado. Tente novamente.');
       setFormState('error');
     }
   }
 
-  if (formState === 'success') {
-    return (
-      <section id="waitlist" className="py-28 px-6" ref={ref}>
-        <div className="max-w-md mx-auto text-center">
-          <div className="reveal rounded-2xl glass p-10">
-            <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-gradient-to-br from-accent-violet/20 to-accent-cyan/10 flex items-center justify-center">
-              <svg
-                className="w-8 h-8 text-accent-cyan"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-            <h3 className="font-display text-2xl font-bold mb-3">
-              Voce esta na lista!
-            </h3>
-            <p className="text-text-muted leading-relaxed">
-              Avisaremos quando sua vez chegar. Fique de olho no seu email.
-            </p>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
   return (
-    <section id="waitlist" className="py-28 px-6 relative" ref={ref}>
+    <section id="waitlist" className="py-16 sm:py-28 px-6 relative" ref={ref}>
       {/* Background glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-accent-violet/[0.04] blur-[120px] pointer-events-none" />
 
@@ -184,6 +156,24 @@ function WaitlistFormInner() {
 
             <div>
               <label
+                htmlFor="wl-whatsapp"
+                className="block text-sm font-medium mb-2 text-text-muted"
+              >
+                WhatsApp
+              </label>
+              <input
+                id="wl-whatsapp"
+                type="tel"
+                required
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-xl bg-surface border border-surface-border text-text placeholder:text-text-subtle focus:border-accent-violet/50 focus:ring-1 focus:ring-accent-violet/20 focus:outline-none transition-all duration-300"
+                placeholder="(11) 99999-9999"
+              />
+            </div>
+
+            <div>
+              <label
                 htmlFor="wl-instagram"
                 className="block text-sm font-medium mb-2 text-text-muted"
               >
@@ -224,7 +214,7 @@ export default function WaitlistForm() {
   return (
     <Suspense
       fallback={
-        <section id="waitlist" className="py-28 px-6">
+        <section id="waitlist" className="py-16 sm:py-28 px-6">
           <div className="max-w-md mx-auto text-center">
             <h2 className="font-display text-3xl font-bold mb-4">
               Garanta seu acesso antecipado

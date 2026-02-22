@@ -8,10 +8,10 @@ export default function Hero() {
       <div className="absolute bottom-[-10%] right-[5%] w-[500px] h-[500px] rounded-full bg-accent-indigo/6 blur-[120px] pointer-events-none" />
       <div className="absolute top-[40%] right-[20%] w-[300px] h-[300px] rounded-full bg-accent-cyan/4 blur-[100px] pointer-events-none" />
 
-      <div className="relative z-10 max-w-6xl mx-auto px-6 pt-32 pb-20 w-full">
-        <div className="grid lg:grid-cols-[1fr,auto] gap-16 items-center">
+      <div className="relative z-10 max-w-6xl mx-auto px-6 pt-20 sm:pt-32 pb-16 sm:pb-20 w-full">
+        <div className="grid lg:grid-cols-[1fr,auto] gap-10 lg:gap-16 items-center">
           {/* Left — Copy */}
-          <div className="max-w-2xl">
+          <div className="max-w-2xl text-center lg:text-left mx-auto lg:mx-0">
             <div
               className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full glass mb-8 opacity-0 animate-fade-up"
               style={{ animationDelay: '0ms' }}
@@ -29,10 +29,10 @@ export default function Hero() {
               className="font-display text-[clamp(2.5rem,5.5vw,4.5rem)] font-extrabold leading-[1.05] tracking-tight mb-7 opacity-0 animate-fade-up"
               style={{ animationDelay: '100ms' }}
             >
-              Conteudo profissional
+              Conteúdo profissional
               <br />
               no{' '}
-              <span className="gradient-text">piloto automatico</span>
+              <span className="gradient-text">piloto automático</span>
             </h1>
 
             <p
@@ -40,11 +40,11 @@ export default function Hero() {
               style={{ animationDelay: '200ms' }}
             >
               IA que pesquisa, escreve e cria imagens para suas redes sociais.
-              Voce so aprova e publica.
+              Você só aprova e publica.
             </p>
 
             <div
-              className="flex flex-wrap items-center gap-4 opacity-0 animate-fade-up"
+              className="flex flex-wrap items-center justify-center lg:justify-start gap-4 opacity-0 animate-fade-up"
               style={{ animationDelay: '300ms' }}
             >
               <button
@@ -73,19 +73,16 @@ export default function Hero() {
                 </span>
               </button>
 
-              <span className="text-sm text-text-subtle">
-                Gratuito durante o beta
-              </span>
             </div>
           </div>
 
           {/* Right — Mock Telegram conversation */}
           <div
-            className="hidden lg:block opacity-0 animate-fade-up"
+            className="opacity-0 animate-fade-up flex justify-center lg:justify-end"
             style={{ animationDelay: '400ms' }}
           >
             <div className="relative">
-              <div className="w-[320px] rounded-3xl bg-surface-raised border border-surface-border overflow-hidden shadow-2xl shadow-accent-violet/5">
+              <div className="w-[280px] sm:w-[320px] rounded-3xl bg-surface-raised border border-surface-border overflow-hidden shadow-2xl shadow-accent-violet/5">
                 {/* Telegram header */}
                 <div className="bg-surface-overlay px-4 py-3 flex items-center gap-3 border-b border-surface-border">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-accent-violet to-accent-indigo flex items-center justify-center">
@@ -115,7 +112,7 @@ export default function Hero() {
                   <div className="flex justify-end">
                     <div className="max-w-[220px] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-accent-violet/20 border border-accent-violet/10">
                       <p className="text-sm leading-relaxed">
-                        /criar post sobre tendencias de IA em 2026
+                        /criar post sobre tendências de IA em 2026
                       </p>
                     </div>
                   </div>
@@ -127,7 +124,7 @@ export default function Hero() {
                         Pesquisando...
                       </p>
                       <p className="text-sm text-text-muted leading-relaxed">
-                        Encontrei 5 tendencias em alta. Gerando conteudo...
+                        Encontrei 5 tendências em alta. Gerando conteúdo...
                       </p>
                     </div>
                   </div>
@@ -140,14 +137,14 @@ export default function Hero() {
                         <span className="text-accent-violet font-medium">
                           Agentes de IA
                         </span>{' '}
-                        esta no rascunho.
+                        está no rascunho.
                       </p>
                       <div className="rounded-lg bg-surface/60 border border-surface-border-subtle p-2.5">
                         <p className="text-xs text-text-muted mb-1">
                           Rascunho gerado
                         </p>
                         <p className="text-sm font-medium leading-snug">
-                          2026: O ano dos agentes autonomos
+                          2026: O ano dos agentes autônomos
                         </p>
                         <p className="text-xs text-text-subtle mt-1">
                           847 caracteres &middot; 3 hashtags

@@ -26,6 +26,7 @@ if (!flags.tenant_id) {
     if (flags.brave_key) updates.brave_search_key = flags.brave_key;
     if (flags.fal_key) updates.fal_key = flags.fal_key;
     if (flags.gemini_key) updates.gemini_api_key = flags.gemini_key;
+    if (flags.apify_key) updates.apify_key = flags.apify_key;
 
     if (Object.keys(updates).length === 0) {
       console.error('No keys provided to update.');

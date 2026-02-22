@@ -2,7 +2,7 @@ const axios = require('axios');
 const { logger } = require('../utils/logger');
 
 const MODEL_MAP = {
-  haiku: 'gemini-2.0-flash-lite',
+  haiku: 'gemini-2.0-flash',
   sonnet: 'gemini-2.0-flash',
   opus: 'gemini-2.5-pro-exp-03-25',
 };

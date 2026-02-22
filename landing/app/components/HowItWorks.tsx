@@ -1,25 +1,25 @@
 'use client';
 
-import { useReveal } from '../hooks/useReveal';
+import { useReveal } from '../../lib/useReveal';
 
 const steps = [
   {
     number: '01',
     title: 'Descreva o tema',
     description:
-      'Diga o que quer criar — um post, carrossel ou thread. A IA pesquisa tendencias e novidades sobre o tema em tempo real.',
+      'Diga o que quer criar — um post, carrossel ou thread. A IA pesquisa tendências e novidades sobre o tema em tempo real.',
   },
   {
     number: '02',
-    title: 'IA cria o conteudo',
+    title: 'IA cria o conteúdo',
     description:
-      'Em segundos, voce recebe texto + imagem prontos. Pesquisador, redator e designer trabalham juntos, automaticamente.',
+      'Em segundos, você recebe texto + imagem prontos. Pesquisador, redator e designer trabalham juntos, automaticamente.',
   },
   {
     number: '03',
     title: 'Aprove e publique',
     description:
-      'Revise no painel, edite o que quiser e publique direto para o Instagram. Ou agende para o melhor horario.',
+      'Revise no painel, edite o que quiser e publique direto para o Instagram. Ou agende para o melhor horário.',
   },
 ];
 
@@ -27,20 +27,20 @@ export default function HowItWorks() {
   const ref = useReveal();
 
   return (
-    <section className="py-28 px-6 relative" ref={ref}>
+    <section className="py-16 sm:py-28 px-6 relative" ref={ref}>
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-20">
           <p className="reveal text-sm font-medium uppercase tracking-[0.2em] text-accent-cyan mb-4">
             Como funciona
           </p>
           <h2 className="reveal font-display text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight">
-            Tres passos. Conteudo pronto.
+            Três passos. Conteúdo pronto.
           </h2>
         </div>
 
         <div className="stagger relative">
           {/* Connecting gradient line — desktop only */}
-          <div className="hidden md:block absolute top-[44px] left-[calc(16.67%+28px)] right-[calc(16.67%+28px)] h-[2px]">
+          <div className="hidden md:block absolute top-[27px] left-[calc(16.67%+28px)] right-[calc(16.67%+28px)] h-[2px]">
             <div className="w-full h-full bg-gradient-to-r from-accent-violet via-accent-indigo to-accent-cyan opacity-20 rounded-full" />
           </div>
 

@@ -1,4 +1,3 @@
-import Header from './components/Header';
 import Hero from './components/Hero';
 import PainSolution from './components/PainSolution';
 import HowItWorks from './components/HowItWorks';
@@ -13,7 +12,6 @@ export default function Home() {
       {/* Noise texture overlay */}
       <div className="noise" />
 
-      <Header />
 
       <main className="relative">
         <Hero />

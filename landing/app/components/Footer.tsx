@@ -22,7 +22,7 @@ export default function Footer() {
           <span className="text-text-subtle text-sm">&copy; 2026</span>
         </div>
         <p className="text-text-subtle text-sm">
-          Conteudo no piloto automatico.
+          Conteúdo no piloto automático.
         </p>
       </div>
     </footer>

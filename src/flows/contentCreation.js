@@ -45,6 +45,35 @@ async function searchBrave(topic, braveSearchKey) {
   }
 }
 
+async function searchGoogleWeb(topic, apifyKey) {
+  if (!apifyKey) return null;
+
+  const actorId = 'apify~google-search-scraper';
+  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${apifyKey}&timeout=60`;
+
+  try {
+    const response = await axios.post(
+      url,
+      { queries: topic, maxPagesPerQuery: 1, languageCode: 'pt-BR', countryCode: 'br' },
+      { timeout: 90000 }
+    );
+
+    const serp = Array.isArray(response.data) ? response.data[0] : null;
+    const organic = serp?.organicResults || [];
+    logger.info('Apify Google Search response', { resultCount: organic.length, query: topic });
+    if (!organic.length) return null;
+
+    const urls = organic.map((r) => ({ url: r.url, title: r.title }));
+    const text = organic
+      .map((r) => `- ${r.title} (${r.url})${r.description ? '\n  ' + r.description : ''}`)
+      .join('\n');
+    return { text, urls };
+  } catch (err) {
+    logger.warn('Google Search (Apify) failed', { error: err.message });
+    return null;
+  }
+}
+
 async function searchGoogleNews(topic, apifyKey) {
   if (!apifyKey) {
     logger.warn('APIFY_KEY not set — skipping Google News search');
@@ -62,6 +91,7 @@ async function searchGoogleNews(topic, apifyKey) {
     );
 
     const items = Array.isArray(response.data) ? response.data : [];
+    logger.info('Apify Google News response', { itemCount: items.length, keyword: topic });
     if (!items.length) return null;
 
     const urls = items.map((r) => ({ url: r.Link, title: r.Title }));
@@ -92,14 +122,16 @@ async function loadPipeline(tenantId) {
 
 // Runs only the pesquisador (first agent). Returns research text + remaining agents.
 async function runResearch(topics, tenantKeys, format) {
-  logger.info('Running research phase', { topics, format });
+  logger.info('Running research phase', { topics, format, hasApifyKey: !!tenantKeys?.apifyKey, hasBraveKey: !!tenantKeys?.braveSearchKey });
 
   const pipeline = await loadPipeline(tenantKeys?.tenantId);
   const [researcher, ...remainingAgents] = pipeline;
 
   let searchData = null;
   if (tenantKeys?.apifyKey) {
-    searchData = await searchGoogleNews(topics, tenantKeys.apifyKey);
+    searchData = format === 'carrossel_noticias'
+      ? await searchGoogleNews(topics, tenantKeys.apifyKey)
+      : await searchGoogleWeb(topics, tenantKeys.apifyKey);
   }
   if (!searchData) {
     searchData = await searchBrave(topics, tenantKeys?.braveSearchKey);

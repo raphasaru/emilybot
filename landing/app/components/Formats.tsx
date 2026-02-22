@@ -1,6 +1,6 @@
 'use client';
 
-import { useReveal } from '../hooks/useReveal';
+import { useReveal } from '../../lib/useReveal';
 
 const formats = [
   { label: 'Post', emoji: '📝', color: 'from-accent-violet/20 to-accent-violet/5', border: 'border-accent-violet/15' },
@@ -14,7 +14,7 @@ export default function Formats() {
   const ref = useReveal();
 
   return (
-    <section className="py-28 px-6 relative" ref={ref}>
+    <section className="py-16 sm:py-28 px-6 relative" ref={ref}>
       {/* Background accent */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-accent-violet/[0.02] to-transparent pointer-events-none" />
 

@@ -4,6 +4,7 @@ const path = require('path');
 const express = require('express');
 const { logger } = require('./utils/logger');
 const botManager = require('./tenant/botManager');
+const { startAutoRefresh } = require('./services/igTokenRefresh');
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection', { error: reason?.message || String(reason) });
@@ -26,7 +27,17 @@ app.get('/health', (req, res) => {
 });
 
 // Boot all tenant bots
-botManager.startAll().catch((err) => {
+botManager.startAll().then(() => {
+  // IG token auto-refresh — notifies tenant via their bot instance
+  startAutoRefresh((chatId, message) => {
+    for (const [, instance] of botManager.getInstances()) {
+      if (String(instance.tenant?.chat_id) === String(chatId)) {
+        instance.bot.sendMessage(chatId, message).catch(() => {});
+        break;
+      }
+    }
+  });
+}).catch((err) => {
   logger.error('BotManager startAll failed', { error: err.message });
 });
 

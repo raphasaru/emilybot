@@ -15,12 +15,12 @@ const dm = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "EmilyBot — Conteudo no Piloto Automatico",
+  title: "EmilyBot — Conteúdo no Piloto Automático",
   description:
-    "IA que pesquisa, escreve e cria imagens para suas redes sociais. Voce so aprova e publica.",
+    "IA que pesquisa, escreve e cria imagens para suas redes sociais. Você só aprova e publica.",
   openGraph: {
-    title: "EmilyBot — Conteudo no Piloto Automatico",
-    description: "IA que cria conteudo profissional para suas redes sociais.",
+    title: "EmilyBot — Conteúdo no Piloto Automático",
+    description: "IA que cria conteúdo profissional para suas redes sociais.",
     type: "website",
     locale: "pt_BR",
     url: "https://emilybot.com.br",
@@ -35,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className="scroll-smooth">
       <body
-        className={`${bricolage.variable} ${dm.variable} font-body antialiased bg-surface text-text`}
+        className={`${bricolage.variable} ${dm.variable} font-body antialiased bg-surface text-text overflow-x-hidden`}
       >
         {children}
       </body>
