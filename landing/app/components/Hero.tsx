@@ -6,13 +6,20 @@ import MascotAvatar from './MascotAvatar';
 export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center overflow-hidden">
-      {/* Ambient gradient blobs */}
-      <div className="absolute top-[-20%] left-[10%] w-[600px] h-[600px] rounded-full bg-accent-violet/8 blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[5%] w-[500px] h-[500px] rounded-full bg-accent-indigo/6 blur-[120px] pointer-events-none" />
-      <div className="absolute top-[40%] right-[20%] w-[300px] h-[300px] rounded-full bg-accent-cyan/4 blur-[100px] pointer-events-none" />
+      {/* Dot grid background */}
+      <div className="absolute inset-0 dot-grid pointer-events-none" />
+
+      {/* Gradient mesh */}
+      <div className="absolute top-[-10%] left-[5%] w-[500px] h-[500px] rounded-full bg-accent-violet/10 blur-[160px] pointer-events-none animate-pulse-glow" />
+      <div className="absolute bottom-[10%] right-[0%] w-[400px] h-[400px] rounded-full bg-accent-indigo/8 blur-[140px] pointer-events-none" />
+      <div className="absolute top-[30%] left-[50%] w-[350px] h-[350px] rounded-full bg-accent-cyan/5 blur-[120px] pointer-events-none animate-pulse-glow" style={{ animationDelay: '1.5s' }} />
+
+      {/* Horizontal accent lines */}
+      <div className="absolute top-[15%] left-0 right-0 h-px bg-gradient-to-r from-transparent via-accent-violet/10 to-transparent pointer-events-none" />
+      <div className="absolute top-[85%] left-0 right-0 h-px bg-gradient-to-r from-transparent via-accent-cyan/8 to-transparent pointer-events-none" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 pt-20 sm:pt-32 pb-16 sm:pb-20 w-full">
-        {/* Mobile mascot — first element */}
+        {/* Mobile mascot — animated (blink + ears), no mouse-tracking */}
         <div
           className="flex lg:hidden justify-center opacity-0 animate-fade-up mb-2"
           style={{ animationDelay: '0ms' }}

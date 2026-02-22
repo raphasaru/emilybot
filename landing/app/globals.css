@@ -45,6 +45,14 @@
   93% { transform: rotate(8deg); }
 }
 
+/* Dot grid background */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(139, 92, 246, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 30%, transparent 80%);
+}
+
 /* Noise texture overlay */
 .noise {
   position: fixed;
