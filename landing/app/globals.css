@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 @layer base {
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
   ::selection {
     background: rgba(139, 92, 246, 0.3);
     color: #F5F5F4;
@@ -12,6 +17,32 @@
     scrollbar-width: thin;
     scrollbar-color: #1E1E2E #06060A;
   }
+}
+
+/* Mascot keyframes */
+@keyframes mascot-float {
+  0% { transform: translateY(0px); }
+  100% { transform: translateY(-15px); }
+}
+@keyframes mascot-shadow {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(0.85); opacity: 0.2; }
+}
+@keyframes mascot-blink {
+  0%, 94%, 98%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.1); }
+}
+@keyframes mascot-visor {
+  0% { transform: translateY(1px); }
+  100% { transform: translateY(-3px); }
+}
+@keyframes mascot-ear-l {
+  0%, 95%, 100% { transform: rotate(0deg); }
+  97% { transform: rotate(-8deg); }
+}
+@keyframes mascot-ear-r {
+  0%, 90%, 100% { transform: rotate(0deg); }
+  93% { transform: rotate(8deg); }
 }
 
 /* Noise texture overlay */

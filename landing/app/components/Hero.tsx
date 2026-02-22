@@ -17,7 +17,7 @@ export default function Hero() {
           className="flex lg:hidden justify-center opacity-0 animate-fade-up mb-2"
           style={{ animationDelay: '0ms' }}
         >
-          <Mascot className="w-[180px] h-[180px] sm:w-[220px] sm:h-[220px]" />
+          <Mascot className="w-[180px] sm:w-[220px]" />
         </div>
 
         <div className="grid lg:grid-cols-[1fr,auto,auto] gap-10 lg:gap-8 items-center">
@@ -92,7 +92,7 @@ export default function Hero() {
             className="hidden lg:flex justify-center opacity-0 animate-fade-up"
             style={{ animationDelay: '350ms' }}
           >
-            <Mascot className="w-[200px] h-[200px] xl:w-[240px] xl:h-[240px]" />
+            <Mascot className="w-[200px] xl:w-[240px]" />
           </div>
 
           {/* Right — Mock Telegram conversation */}
